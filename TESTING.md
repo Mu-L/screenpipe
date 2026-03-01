@@ -81,6 +81,11 @@ commits: `28e5c247`
 - [ ] **disable audio setting** — toggling "disable audio" stops all audio recording. re-enabling restarts it.
 - [ ] **Metal GPU for whisper** — transcription uses GPU acceleration on macOS (`f882caef`). verify with Activity Monitor GPU tab.
 - [ ] **Batch transcription mode** — Verify that batch transcription mode works correctly with both cloud and Deepgram engines.
+- [ ] **OpenAI-compatible STT selection** — Verify that OpenAI-compatible transcription engines can be selected in settings and function correctly.
+- [ ] **OpenAI-compatible STT connection test** — Verify that the connection test for OpenAI-compatible STT works as expected.
+- [ ] **OpenAI-compatible STT editable model input** — Verify that the model input for OpenAI-compatible STT is editable.
+- [ ] **OpenAI-compatible STT vocabulary/context** — Verify that passing vocabulary as prompt/context to OpenAI-compatible STT improves transcription accuracy.
+- [ ] **Qwen3-ASR batch mode reconciliation** — Verify that Qwen3-ASR batch mode reconciliation works correctly with the alternate STT engine.
 
 ### 5. frame comparison & OCR pipeline
 
@@ -95,6 +100,7 @@ commits: `6dd5d98e`, `831ad258`
 - [ ] **very fast content changes** — scroll quickly through a document. OCR captures content, no crashes from buffer overflows.
 - [ ] **corrupt pixel buffer** — sck-rs handles corrupt ScreenCaptureKit buffers gracefully (no SIGABRT). fixed in `831ad258`.
 - [ ] **window capture only on changed frames** — window enumeration (CGWindowList) should NOT run on skipped frames. verify by checking CPU on idle multi-monitor setup.
+- [ ] **Search OCR returns results** — Verify that `search_ocr()` returns results for event-driven capture, and does not return empty.
 
 ### 6. permissions (macOS)
 
@@ -107,6 +113,7 @@ commits: `d9d43d31`, `620c89a5`
 - [ ] **permission recovery page** — navigating to /permission-recovery shows clear instructions.
 - [ ] **startup permission gate** — on first launch, permissions are requested before recording starts (`d9d43d31`).
 - [ ] **faster permission polling** — permission status checked every 5-10 seconds, not 30 (`d9d43d31`).
+- [ ] **macOS permission modal persistence** — Verify that the macOS permission modal does not reappear every time the app is closed.
 
 ### 7. Apple Intelligence (macOS 26+)
 
@@ -141,6 +148,8 @@ commits: `94531265`, `d794176a`, `9070639c`, `0378cab1`, `4a3313d3`
 - [ ] **rollback** — user can rollback to previous version via tray menu (`c7fbc3ea`).
 - [ ] **Zombie CPU drain prevention** — Verify that `lsof` calls have a 5-second timeout, preventing zombie CPU drain, especially on quit. Check logs for `lsof` timeouts if applicable.
 - [ ] **Tokio shutdown stability** — Verify that the `tokio` shutdown process is stable and doesn't panic in the tree walker, especially during application exit or process restarts.
+- [ ] **UI Recorder graceful shutdown** — Verify that UI recorder tasks are properly waited for and stopped before application exit.
+- [ ] **Server stability with disabled features** — Verify that the server does not shut down when vision or audio features are disabled.
 
 ### 9. database & storage
 
@@ -154,6 +163,8 @@ commits: `eea0c865`, `cc09de61`
 - [ ] **low disk space** — with <1GB free, app should warn user. no crash from failed writes.
 - [ ] **large database (>10GB)** — search still returns results within 2 seconds. app doesn't freeze on startup.
 - [ ] **Audio chunk timestamps** — `start_time` and `end_time` are correctly set for reconciled and retranscribed audio chunks in the database.
+- [ ] **Pipe execution auto-cleanup** — Verify that pipe executions are automatically cleaned up to prevent database bloat.
+- [ ] **Reconciled audio on timeline** — Verify that reconciled audio appears correctly on the timeline.
 
 ### 10. AI presets & settings
 
@@ -167,6 +178,8 @@ commits: `8a5f51dd`, `0b0d8090`
 - [ ] **language/OCR engine setting** — change OCR language. new language used on next capture cycle.
 - [ ] **video quality setting** — low/balanced/high/max. affects FFmpeg encoding params (`21bddd0f`).
 - [ ] **Settings UI sentence case** — All settings UI elements (billing, pipes, team) should use consistent sentence case.
+- [ ] **Pipe preset functionality** — Verify that pipe presets work correctly, and bugs are resolved.
+- [ ] **Pipe cloud credit usage** — Verify that pipe executions do not lead to unintended cloud credit drain.
 
 ### 11. onboarding
 
@@ -194,6 +207,7 @@ commits: `f1255eac`, `25cbdc6b`, `2529367d`, `d9821624`
 - [ ] **Keyword search accessibility** — Keyword search should find content within accessibility-only frames and utilize `frames_fts` for comprehensive accessibility text searching.
 - [ ] **Keyword search logic** — Verify that keyword search SQL correctly uses `OR` instead of `UNION` within `IN()`.
 - [ ] **Search prompt accuracy** — Verify that search prompts are improved to prevent false negatives from over-filtering.
+- [ ] **Search pagination and count** — Verify that search pagination works correctly and returns the right count, especially with `content_type=all`, and that pages beyond the first are not empty.
 
 ### 13. sync & cloud
 
@@ -203,6 +217,7 @@ commits: `2f6b2af5`, `ea7f1f61`, `5cb100ea`
 - [ ] **auto-download from other devices** — after upload cycle, download new data from paired devices (`2f6b2af5`).
 - [ ] **auto-init doesn't loop** — sync initialization happens once, doesn't repeat endlessly (`ea7f1f61`).
 - [ ] **Cloud archive docs** — Verify that the cloud archive documentation page exists and is accessible via a link from settings.
+- [ ] **Pipe sync toggle location** — Verify that the pipe sync toggle has been moved from the Pipes header to the Account section (for pro users only).
 
 ### 14. Windows-specific
 
@@ -252,6 +267,9 @@ Note: `"terminal"` matches `WindowsTerminal.exe` but NOT `cmd.exe` or `powershel
 - [ ] **Non-terminal chrome-only** — rare case where a normal app returns only chrome from accessibility. stored as-is (acceptable, no OCR fallback triggered).
 - [ ] **Empty accessibility + empty OCR** — app with no tree text and OCR failure. frame stored with NULL text. no crash.
 - [ ] **ocr_text table populated** — `SELECT COUNT(*) FROM ocr_text` should be non-zero after a few minutes of use on Windows.
+- [ ] **OCR fallback in event-driven capture** — On Windows, verify that OCR fallback correctly works in the event-driven capture pipeline for apps with poor accessibility.
+- [ ] **Terminal OCR preference** — On Windows, verify that OCR is preferred over accessibility chrome for terminal applications, providing meaningful content.
+- [ ] **No chrome text on OCR failure for terminals** — On Windows, verify that chrome text is not stored when OCR fails for terminals.
 
 #### Windows text extraction — untested / unknown apps
 
@@ -339,7 +357,7 @@ commits: `8f334c0a`, `fda40d2c`
 
 ### 16. MCP / Claude integration
 
-commits: `8c8c445c`
+commits: `8c8c445c`, `e66c5ff8`, `c905ffbf`
 
 - [ ] **Claude connect button works** — Settings → Connections → "Connect Claude" downloads `.mcpb` file and opens it in Claude Desktop. was broken because GitHub releases API pagination didn't reach `mcp-v*` releases buried behind 30+ app releases (`8c8c445c`).
 - [ ] **MCP release discovery with many app releases** — `getLatestMcpRelease()` paginates up to 5 pages (250 releases) to find `mcp-v*` tagged releases. verify it works even when >30 app releases exist since last MCP release.
@@ -348,10 +366,14 @@ commits: `8c8c445c`
 - [ ] **macOS Claude install flow** — downloads `.mcpb`, opens Claude Desktop, waits 1.5s, then opens the `.mcpb` file to trigger Claude's install modal.
 - [ ] **Windows Claude install flow** — same flow using `cmd /c start` instead of `open -a`.
 - [ ] **download error logging** — if download fails, console shows actual error message (not `{}`).
+- [ ] **Activity Summary endpoint and progressive disclosure** — Verify that the `activity-summary` endpoint works correctly and provides progressive disclosure for AI data querying.
+- [ ] **Activity Summary tool** — Verify that MCP can access activity summaries via the `activity-summary` tool.
+- [ ] **Search Elements tool** — Verify that MCP can search elements using the `search-elements` tool.
+- [ ] **Frame Context tool** — Verify that MCP can access frame context via the `frame-context` tool.
 
 ### 17. AI Agents / Pipes
 
-commits: `fa887407`, `815f52e6`, `60840155`, `e66c5ff8`, `c905ffbf`, `01147096`, `5908d7f4`, `46422869`, `4f43da70`, `71a1a537`, `6abaaa36`
+commits: `fa887407`, `815f52e6`, `60840155`, `e66c5ff8`, `c905ffbf`, `01147096`, `5908d7f4`, `46422869`, `4f43da70`, `71a1a537`, `6abaaa36`, `da525166`, `a33e5b1a`, `6e8c57b3`, `d694cdbf`, `c33f73d`
 
 - [ ] **Pi process stability** — After app launch, `ps aux | grep pi` should show a single, stable `pi` process that doesn't restart or get killed.
 - [ ] **Pi readiness handshake** — First chat interaction with Pi should be fast (<2s for readiness).
@@ -370,19 +392,25 @@ commits: `fa887407`, `815f52e6`, `60840155`, `e66c5ff8`, `c905ffbf`, `01147096`,
 - [ ] **Pipe user_token passthrough** — Verify that the `user_token` is correctly passed to Pi pre-configuration so pipes use the screenpipe provider.
 - [ ] **Default AI model ID** — Verify that the default AI model ID does not contain outdated date suffixes.
 - [ ] **Move provider/model flags** — `--provider` and `--model` flags should be correctly moved before `-p prompt` in `pi spawn` commands.
+- [ ] **OpenAI-compatible transcription engine support** — Verify that the system correctly supports and integrates OpenAI-compatible transcription engines.
+- [ ] **OpenAI-compatible STT connection test** — Verify the connection test functionality for OpenAI-compatible Speech-to-Text (STT) models.
+- [ ] **Editable OpenAI-compatible model input** — Verify that the model input field for OpenAI-compatible STT is editable by the user.
+- [ ] **Vocabulary/context for OpenAI-compatible STT** — Verify that passing vocabulary as prompt/context to OpenAI-compatible STT improves transcription accuracy.
+- [ ] **LLM error surfacing in chat UI** — Verify that LLM errors (e.g., credits exhausted, rate limit) are correctly surfaced and displayed in the chat UI.
 
 ### 18. Admin / Team features
 
-commits: `58460e02`
+commits: `58460e02`, `a205385f`
 
 - [ ] **Admin team-shared filters** — Admins should be able to remove individual team-shared filters.
 
 ### 19. Logging
 
-commits: `fc830b43`
+commits: `fc830b43`, `23213069`
 
 - [ ] **Reduced log noise** — Verify a significant reduction in log noise (~54%).
 - [ ] **PII scrubbing** — Ensure that PII (Personally Identifiable Information) is scrubbed from logs.
+- [ ] **macOS os_log integration** — Verify that logs are correctly integrated with macOS `os_log` and appear in Console.app.
 
 ## how to run
 
