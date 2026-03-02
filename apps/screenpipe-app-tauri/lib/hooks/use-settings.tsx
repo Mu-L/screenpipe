@@ -173,7 +173,7 @@ const DEFAULT_IGNORED_WINDOWS_PER_OS: Record<string, string[]> = {
 };
 
 // Default Pi agent preset — local coding agent with screenpipe search skill
-const DEFAULT_PI_PRESET: AIPreset = {
+export const DEFAULT_PI_PRESET: AIPreset = {
 	id: "pi-agent",
 	provider: "pi",
 	url: "",
@@ -186,7 +186,7 @@ const DEFAULT_PI_PRESET: AIPreset = {
 // Legacy presets removed — Pi agent is the only default now
 // screenpipe-cloud presets are migrated away for existing users
 
-let DEFAULT_SETTINGS: Settings = {
+const BASE_DEFAULT_SETTINGS: Settings = {
 			aiPresets: [DEFAULT_PI_PRESET as any],
 			deviceId: crypto.randomUUID(),
 			deepgramApiKey: "",
@@ -203,8 +203,8 @@ let DEFAULT_SETTINGS: Settings = {
 			port: 3030,
 			dataDir: "default",
 			disableAudio: false,
-			ignoredWindows: [
-			],
+			// These will be overridden by platform specific defaults in createDefaultSettingsObject
+			ignoredWindows: [],
 			includedWindows: [],
 			ignoredUrls: [],
 			teamFilters: { ignoredWindows: [], includedWindows: [], ignoredUrls: [] },
@@ -220,7 +220,7 @@ let DEFAULT_SETTINGS: Settings = {
 				model: "ministral-3:latest",
 				port: 11434,
 			},
-		updateChannel: "stable",
+			updateChannel: "stable",
 			autoStartEnabled: true,
 			platform: "unknown",
 			disabledShortcuts: [],
@@ -271,34 +271,34 @@ let DEFAULT_SETTINGS: Settings = {
 		};
 
 export function createDefaultSettingsObject(): Settings {
-	try {
-		const p = platform();
-		DEFAULT_SETTINGS.platform = p;
-		DEFAULT_SETTINGS.disabledShortcuts = DEFAULT_IGNORED_WINDOWS_IN_ALL_OS;
-		DEFAULT_SETTINGS.disabledShortcuts.push(...(DEFAULT_IGNORED_WINDOWS_PER_OS[p] ?? []));
-		DEFAULT_SETTINGS.ocrEngine = p === "macos" ? "apple-native" : p === "windows" ? "windows-native" : "tesseract";
-		DEFAULT_SETTINGS.fps = p === "macos" ? 0.5 : 1;
-		DEFAULT_SETTINGS.showScreenpipeShortcut = p === "windows" ? "Alt+S" : "Control+Super+S";
-		DEFAULT_SETTINGS.showChatShortcut = p === "windows" ? "Alt+L" : "Control+Super+L";
-		DEFAULT_SETTINGS.searchShortcut = p === "windows" ? "Alt+K" : "Control+Super+K";
+		const newSettings: Settings = { ...BASE_DEFAULT_SETTINGS };
+		try {
+			const p = platform();
+			newSettings.platform = p;
+			newSettings.disabledShortcuts = [...DEFAULT_IGNORED_WINDOWS_IN_ALL_OS, ...(DEFAULT_IGNORED_WINDOWS_PER_OS[p] ?? [])];
+			newSettings.ocrEngine = p === "macos" ? "apple-native" : p === "windows" ? "windows-native" : "tesseract";
+			newSettings.fps = p === "macos" ? 0.5 : 1;
+			newSettings.showScreenpipeShortcut = p === "windows" ? "Alt+S" : "Control+Super+S";
+			newSettings.showChatShortcut = p === "windows" ? "Alt+L" : "Control+Super+L";
+			newSettings.searchShortcut = p === "windows" ? "Alt+K" : "Control+Super+K";
 
-		if (p === "windows") {
-			DEFAULT_SETTINGS.enableAccessibility = true;
-			DEFAULT_SETTINGS.enableInputCapture = true;
-			DEFAULT_SETTINGS.disableOcr = true;
-			DEFAULT_SETTINGS.overlayMode = "window";
+			if (p === "windows") {
+				newSettings.enableAccessibility = true;
+				newSettings.enableInputCapture = true;
+				newSettings.disableOcr = true;
+				newSettings.overlayMode = "window";
+			}
+
+			if (p === "linux") {
+				newSettings.overlayMode = "window";
+			}
+
+			return newSettings;
+		} catch (e) {
+			// Fallback if platform detection fails
+			return newSettings;
 		}
-
-		if (p === "linux") {
-			DEFAULT_SETTINGS.overlayMode = "window";
-		}
-
-		return DEFAULT_SETTINGS;
-	} catch (e) {
-		// Fallback if platform detection fails
-		return DEFAULT_SETTINGS;
 	}
-}
 
 // Store singleton
 let _store: Promise<Store> | undefined;
@@ -316,7 +316,7 @@ export const getStore = async () => {
 };
 
 // Store utilities similar to Cap's implementation
-function createSettingsStore() {
+export function createSettingsStore() {
 	const get = async (): Promise<Settings> => {
 		const store = await getStore();
 		const settings = await store.get<Settings>("settings");
@@ -337,17 +337,7 @@ function createSettingsStore() {
 			needsUpdate = true;
 		}
 
-		// Migration: Add Pi agent preset for existing users and make it default
-		const hasPiPreset = settings.aiPresets?.some(
-			(p: any) => p.id === "pi-agent" || p.provider === "pi"
-		);
-		if (settings.aiPresets && settings.aiPresets.length > 0 && !hasPiPreset) {
-			// Demote all existing presets from default
-			settings.aiPresets = settings.aiPresets.map((p: any) => ({ ...p, defaultPreset: false }));
-			// Add Pi as default at the front
-			settings.aiPresets = [DEFAULT_PI_PRESET as any, ...settings.aiPresets];
-			needsUpdate = true;
-		}
+
 
 		// Migration: Remove screenpipe-cloud presets (replaced by Pi agent)
 		if (settings.aiPresets?.some((p: any) => p.provider === "screenpipe-cloud")) {
