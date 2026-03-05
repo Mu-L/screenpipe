@@ -142,7 +142,7 @@ impl PiExecutor {
         let ext_dir = project_dir.join(".pi").join("extensions");
         let ext_path = ext_dir.join("screenpipe-permissions.ts");
 
-        if perms.has_restrictions() {
+        if perms.has_any_restrictions() {
             std::fs::create_dir_all(&ext_dir)?;
             let ext_content =
                 include_str!("../../assets/extensions/screenpipe-permissions.ts");
@@ -211,6 +211,21 @@ impl PiExecutor {
         }
 
         Ok(())
+    }
+
+    /// Auto-detect whether to use filtered or unfiltered skill installation.
+    /// If PipeManager already wrote `.screenpipe-permissions.json`, use filtered.
+    /// Otherwise install all skills (CLI / direct executor usage).
+    pub fn ensure_screenpipe_skill_auto(project_dir: &Path) -> Result<()> {
+        let perms_path = project_dir.join(".screenpipe-permissions.json");
+        if perms_path.exists() {
+            // PipeManager already handled filtered installation — skip
+            // to avoid overwriting with unfiltered skills.
+            debug!("permissions file found, skipping unfiltered skill install");
+            Ok(())
+        } else {
+            Self::ensure_screenpipe_skill(project_dir)
+        }
     }
 
     /// Install or remove the web-search extension based on provider.
@@ -715,7 +730,8 @@ impl AgentExecutor for PiExecutor {
             Some(model),
             provider_url,
         )?;
-        Self::ensure_screenpipe_skill(working_dir)?;
+        // Use filtered skills if permissions are configured, unfiltered otherwise
+        Self::ensure_screenpipe_skill_auto(working_dir)?;
 
         // Provider resolution:
         // 1. Explicit provider from pipe frontmatter → use it
@@ -802,7 +818,8 @@ impl AgentExecutor for PiExecutor {
             Some(&resolved_model),
             provider_url,
         )?;
-        Self::ensure_screenpipe_skill(working_dir)?;
+        // Use filtered skills if permissions are configured, unfiltered otherwise
+        Self::ensure_screenpipe_skill_auto(working_dir)?;
         Self::ensure_web_search_extension(working_dir, Some(&resolved_provider))?;
 
         let pi_path = find_pi_executable()

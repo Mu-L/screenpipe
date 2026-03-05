@@ -13,6 +13,17 @@ use std::collections::HashSet;
 
 use super::PipeConfig;
 
+/// Registry for active pipe tokens. Implemented by screenpipe-server
+/// (DashMap on AppState) to bridge the gap between screenpipe-core
+/// (where PipeManager lives) and the server (where the middleware runs).
+#[async_trait::async_trait]
+pub trait PipeTokenRegistry: Send + Sync {
+    /// Register a token with its associated permissions.
+    async fn register_token(&self, token: String, perms: PipePermissions);
+    /// Remove a token (called when pipe execution finishes).
+    async fn remove_token(&self, token: &str);
+}
+
 /// Resolved permission set for a pipe, serialized to JSON and passed as
 /// `SCREENPIPE_PIPE_PERMISSIONS` env var to the Pi subprocess.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,8 +94,13 @@ impl PipePermissions {
         }
     }
 
-    /// Returns true if this permission set has any restrictions at all.
-    pub fn has_restrictions(&self) -> bool {
+    /// Returns true if the pipe has active filter rules that need runtime
+    /// enforcement (allow/deny lists, time range, or day restrictions).
+    ///
+    /// `allow_raw_sql` and `allow_frames` are NOT included here — those are
+    /// enforced by skill gating (don't install the skill) and server middleware
+    /// (block the endpoint), not by the Pi extension.
+    pub fn has_filter_rules(&self) -> bool {
         !self.allow_apps.is_empty()
             || !self.deny_apps.is_empty()
             || !self.allow_windows.is_empty()
@@ -93,8 +109,13 @@ impl PipePermissions {
             || !self.deny_content_types.is_empty()
             || self.time_range.is_some()
             || self.days.is_some()
-            || !self.allow_raw_sql
-            || !self.allow_frames
+    }
+
+    /// Returns true if any permission field differs from the fully-open default.
+    /// Used to decide whether to write the permissions file and install the
+    /// permissions extension.
+    pub fn has_any_restrictions(&self) -> bool {
+        self.has_filter_rules() || !self.allow_raw_sql || !self.allow_frames
     }
 
     /// Check if an app name is allowed.
@@ -197,85 +218,7 @@ impl PipePermissions {
         true
     }
 
-    /// Build a human-readable permission rules string for the LLM system prompt.
-    pub fn to_prompt_rules(&self) -> String {
-        let mut rules = Vec::new();
 
-        if !self.deny_apps.is_empty() {
-            rules.push(format!(
-                "DENIED apps (never query these): {}",
-                self.deny_apps.join(", ")
-            ));
-        }
-        if !self.allow_apps.is_empty() {
-            rules.push(format!(
-                "ALLOWED apps (only query these): {}",
-                self.allow_apps.join(", ")
-            ));
-        }
-        if !self.deny_windows.is_empty() {
-            rules.push(format!(
-                "DENIED window patterns: {}",
-                self.deny_windows.join(", ")
-            ));
-        }
-        if !self.allow_windows.is_empty() {
-            rules.push(format!(
-                "ALLOWED window patterns: {}",
-                self.allow_windows.join(", ")
-            ));
-        }
-        if !self.deny_content_types.is_empty() {
-            rules.push(format!(
-                "DENIED content types: {}",
-                self.deny_content_types
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-        }
-        if !self.allow_content_types.is_empty() {
-            rules.push(format!(
-                "ALLOWED content types: {}",
-                self.allow_content_types
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-        }
-        if let Some((sh, sm, eh, em)) = self.time_range {
-            rules.push(format!(
-                "Time window: {:02}:{:02} - {:02}:{:02}",
-                sh, sm, eh, em
-            ));
-        }
-        if let Some(ref days) = self.days {
-            let names: Vec<&str> = days
-                .iter()
-                .map(|d| match d {
-                    0 => "Mon",
-                    1 => "Tue",
-                    2 => "Wed",
-                    3 => "Thu",
-                    4 => "Fri",
-                    5 => "Sat",
-                    6 => "Sun",
-                    _ => "?",
-                })
-                .collect();
-            rules.push(format!("Allowed days: {}", names.join(", ")));
-        }
-        if !self.allow_raw_sql {
-            rules.push("Raw SQL (/raw_sql) is NOT permitted.".to_string());
-        }
-        if !self.allow_frames {
-            rules.push("Frame/screenshot access (/frames/*) is NOT permitted.".to_string());
-        }
-
-        rules.join("\n")
-    }
 }
 
 /// Simple glob matching: `*` matches any sequence, `?` matches any single char.
@@ -549,7 +492,7 @@ mod tests {
         };
         let perms = PipePermissions::from_config(&config);
         // allow_raw_sql defaults to false, which IS a restriction
-        assert!(perms.has_restrictions());
+        assert!(perms.has_any_restrictions());
     }
 
     #[test]
@@ -557,7 +500,7 @@ mod tests {
         let mut p = make_perms();
         p.allow_raw_sql = true;
         p.allow_frames = true;
-        assert!(!p.has_restrictions());
+        assert!(!p.has_any_restrictions());
     }
 
     #[test]

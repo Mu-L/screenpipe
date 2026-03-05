@@ -417,6 +417,73 @@ pub type OnPipeOutputLine = Arc<dyn Fn(&str, i64, &str) + Send + Sync>;
 /// Default execution timeout: 5 minutes.
 const DEFAULT_TIMEOUT_SECS: u64 = 300;
 
+/// Set up permissions for a Pi pipe: install extension, filtered skills,
+/// write the permissions JSON file, and register the token with the server.
+/// Returns the generated token (if any) so the caller can clean it up later.
+fn setup_pipe_permissions(
+    pipe_dir: &Path,
+    config: &PipeConfig,
+    token_registry: Option<&Arc<dyn permissions::PipeTokenRegistry>>,
+) -> Option<String> {
+    if let Err(e) = PiExecutor::ensure_permissions_extension(pipe_dir, config) {
+        warn!("failed to install permissions extension: {}", e);
+    }
+    if let Err(e) = PiExecutor::ensure_screenpipe_skill_filtered(pipe_dir, config) {
+        warn!("failed to install filtered skills: {}", e);
+    }
+
+    let mut perms = permissions::PipePermissions::from_config(config);
+
+    if perms.has_any_restrictions() {
+        // Generate a unique pipe token for server-side enforcement
+        use rand::Rng;
+        let suffix: u64 = rand::thread_rng().gen();
+        let t = format!("sp_pipe_{:016x}", suffix);
+        perms.pipe_token = Some(t.clone());
+
+        // Register with server middleware
+        if let Some(registry) = token_registry {
+            let registry = registry.clone();
+            let perms_clone = perms.clone();
+            let t_clone = t.clone();
+            tokio::spawn(async move {
+                registry.register_token(t_clone, perms_clone).await;
+            });
+        }
+
+        // Write permissions JSON for the extension to read
+        let perms_path = pipe_dir.join(".screenpipe-permissions.json");
+        match serde_json::to_string(&perms) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&perms_path, &json) {
+                    warn!("failed to write permissions file: {}", e);
+                }
+            }
+            Err(e) => warn!("failed to serialize permissions: {}", e),
+        }
+
+        Some(t)
+    } else {
+        // Clean up any stale permissions file
+        let _ = std::fs::remove_file(pipe_dir.join(".screenpipe-permissions.json"));
+        None
+    }
+}
+
+/// Remove a pipe token from the server registry.
+fn cleanup_pipe_token(
+    token: &str,
+    token_registry: Option<&Arc<dyn permissions::PipeTokenRegistry>>,
+) {
+    if let Some(registry) = token_registry {
+        let registry = registry.clone();
+        let token = token.to_string();
+        tokio::spawn(async move {
+            registry.remove_token(&token).await;
+        });
+    }
+}
+
 pub struct PipeManager {
     /// `~/.screenpipe/pipes/`
     pipes_dir: PathBuf,
@@ -445,6 +512,8 @@ pub struct PipeManager {
     api_port: u16,
     /// Timestamp of last reload_pipes() disk scan, for debouncing.
     last_reload: Arc<Mutex<Instant>>,
+    /// Optional token registry for server-side permission enforcement.
+    token_registry: Option<Arc<dyn permissions::PipeTokenRegistry>>,
 }
 
 impl PipeManager {
@@ -470,7 +539,13 @@ impl PipeManager {
             last_reload: Arc::new(Mutex::new(
                 Instant::now() - std::time::Duration::from_secs(10),
             )),
+            token_registry: None,
         }
+    }
+
+    /// Set a token registry for server-side permission enforcement.
+    pub fn set_token_registry(&mut self, registry: Arc<dyn permissions::PipeTokenRegistry>) {
+        self.token_registry = Some(registry);
     }
 
     /// Set a callback to be invoked after each scheduled pipe run.
@@ -912,6 +987,7 @@ impl PipeManager {
         });
 
         // Pre-configure pi
+        let mut pipe_token: Option<String> = None;
         if config.agent == "pi" {
             if let Err(e) = PiExecutor::ensure_pi_config(
                 executor.user_token(),
@@ -923,35 +999,11 @@ impl PipeManager {
                 warn!("failed to pre-configure pi provider: {}", e);
             }
 
-            // Install permissions extension and filtered skills
-            if let Err(e) = PiExecutor::ensure_permissions_extension(&pipe_dir, &config) {
-                warn!("failed to install permissions extension: {}", e);
-            }
-            if let Err(e) = PiExecutor::ensure_screenpipe_skill_filtered(&pipe_dir, &config) {
-                warn!("failed to install filtered skills: {}", e);
-            }
-
-            // Write permissions JSON for the extension to read
-            let perms = permissions::PipePermissions::from_config(&config);
-            if perms.has_restrictions() {
-                let perms_path = pipe_dir.join(".screenpipe-permissions.json");
-                match serde_json::to_string(&perms) {
-                    Ok(json) => {
-                        if let Err(e) = std::fs::write(&perms_path, &json) {
-                            warn!("failed to write permissions file: {}", e);
-                        }
-                        // Also set env var for the subprocess
-                        std::env::set_var("SCREENPIPE_PIPE_PERMISSIONS", &json);
-                    }
-                    Err(e) => warn!("failed to serialize permissions: {}", e),
-                }
-            } else {
-                // Clean up any stale permissions file
-                let perms_path = pipe_dir.join(".screenpipe-permissions.json");
-                let _ = std::fs::remove_file(&perms_path);
-                std::env::remove_var("SCREENPIPE_PIPE_PERMISSIONS");
-            }
+            pipe_token = setup_pipe_permissions(
+                &pipe_dir, &config, self.token_registry.as_ref(),
+            );
         }
+        let token_registry_ref = self.token_registry.clone();
 
         // Clone everything needed for the background task
         let running_ref = self.running.clone();
@@ -1143,6 +1195,11 @@ impl PipeManager {
             if let Some(ref cb) = on_complete {
                 cb(&name_for_cb, success, duration_secs);
             }
+
+            // Clean up pipe token from server registry
+            if let Some(ref token) = pipe_token {
+                cleanup_pipe_token(token, token_registry_ref.as_ref());
+            }
         });
 
         Ok(())
@@ -1288,6 +1345,7 @@ impl PipeManager {
 
         // Pre-configure pi with the pipe's provider so models.json has the
         // right entry before the agent subprocess starts.
+        let mut pipe_token: Option<String> = None;
         if config.agent == "pi" {
             if let Err(e) = PiExecutor::ensure_pi_config(
                 None,
@@ -1299,27 +1357,9 @@ impl PipeManager {
                 warn!("failed to pre-configure pi provider: {}", e);
             }
 
-            // Install permissions extension and filtered skills
-            let pipe_dir_for_perms = self.pipes_dir.join(name);
-            if let Err(e) = PiExecutor::ensure_permissions_extension(&pipe_dir_for_perms, &config) {
-                warn!("failed to install permissions extension: {}", e);
-            }
-            if let Err(e) = PiExecutor::ensure_screenpipe_skill_filtered(&pipe_dir_for_perms, &config) {
-                warn!("failed to install filtered skills: {}", e);
-            }
-
-            // Write permissions JSON for the extension to read
-            let perms = permissions::PipePermissions::from_config(&config);
-            if perms.has_restrictions() {
-                let perms_path = pipe_dir_for_perms.join(".screenpipe-permissions.json");
-                if let Ok(json) = serde_json::to_string(&perms) {
-                    let _ = std::fs::write(&perms_path, &json);
-                    std::env::set_var("SCREENPIPE_PIPE_PERMISSIONS", &json);
-                }
-            } else {
-                let _ = std::fs::remove_file(pipe_dir_for_perms.join(".screenpipe-permissions.json"));
-                std::env::remove_var("SCREENPIPE_PIPE_PERMISSIONS");
-            }
+            pipe_token = setup_pipe_permissions(
+                &self.pipes_dir.join(name), &config, self.token_registry.as_ref(),
+            );
         }
 
         // Run with timeout + streaming
@@ -1482,6 +1522,11 @@ impl PipeManager {
                 }
             }
         };
+
+        // Clean up pipe token from server registry
+        if let Some(ref token) = pipe_token {
+            cleanup_pipe_token(token, self.token_registry.as_ref());
+        }
 
         // Save log (in-memory + disk)
         self.append_log(name, &log).await;
@@ -1779,6 +1824,7 @@ impl PipeManager {
         let on_output_line = self.on_output_line.clone();
         let store = self.store.clone();
         let api_port = self.api_port;
+        let token_registry = self.token_registry.clone();
 
         tokio::spawn(async move {
             info!("pipe scheduler started");
@@ -1895,6 +1941,7 @@ impl PipeManager {
                     };
 
                     // Pre-configure pi with the pipe's provider
+                    let mut pipe_token: Option<String> = None;
                     if config.agent == "pi" {
                         if let Err(e) = PiExecutor::ensure_pi_config(
                             executor.user_token(),
@@ -1906,27 +1953,9 @@ impl PipeManager {
                             warn!("scheduler: failed to pre-configure pi provider: {}", e);
                         }
 
-                        // Install permissions extension and filtered skills
-                        let sched_pipe_dir = pipes_dir.join(name);
-                        if let Err(e) = PiExecutor::ensure_permissions_extension(&sched_pipe_dir, config) {
-                            warn!("scheduler: failed to install permissions extension: {}", e);
-                        }
-                        if let Err(e) = PiExecutor::ensure_screenpipe_skill_filtered(&sched_pipe_dir, config) {
-                            warn!("scheduler: failed to install filtered skills: {}", e);
-                        }
-
-                        // Write permissions JSON for the extension to read
-                        let perms = permissions::PipePermissions::from_config(config);
-                        if perms.has_restrictions() {
-                            let perms_path = sched_pipe_dir.join(".screenpipe-permissions.json");
-                            if let Ok(json) = serde_json::to_string(&perms) {
-                                let _ = std::fs::write(&perms_path, &json);
-                                std::env::set_var("SCREENPIPE_PIPE_PERMISSIONS", &json);
-                            }
-                        } else {
-                            let _ = std::fs::remove_file(sched_pipe_dir.join(".screenpipe-permissions.json"));
-                            std::env::remove_var("SCREENPIPE_PIPE_PERMISSIONS");
-                        }
+                        pipe_token = setup_pipe_permissions(
+                            &pipes_dir.join(name), config, token_registry.as_ref(),
+                        );
                     }
 
                     // Check if history/session continuation is enabled
@@ -1949,6 +1978,7 @@ impl PipeManager {
                     let on_complete = on_run_complete.clone();
                     let on_output = on_output_line.clone();
                     let store_ref = store.clone();
+                    let token_registry_ref = token_registry.clone();
 
                     tokio::spawn(async move {
                         // Create DB execution row
@@ -2198,6 +2228,11 @@ impl PipeManager {
                         // Fire run-complete callback (analytics, etc.)
                         if let Some(ref cb) = on_complete {
                             cb(&name_for_cb, success, duration_secs);
+                        }
+
+                        // Clean up pipe token from server registry
+                        if let Some(ref token) = pipe_token {
+                            cleanup_pipe_token(token, token_registry_ref.as_ref());
                         }
                     });
                 }

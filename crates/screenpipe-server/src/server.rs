@@ -164,6 +164,8 @@ pub struct SCServer {
     pub hot_frame_cache: Option<Arc<HotFrameCache>>,
     /// Power manager handle — set this before starting to enable /power endpoints.
     pub power_manager: Option<Arc<crate::power::PowerManagerHandle>>,
+    /// Shared pipe permission token registry — set before starting so PipeManager can use it.
+    pub pipe_permissions: Arc<DashMap<String, Arc<screenpipe_core::pipes::permissions::PipePermissions>>>,
 }
 
 impl SCServer {
@@ -194,6 +196,7 @@ impl SCServer {
             audio_metrics,
             hot_frame_cache: None,
             power_manager: None,
+            pipe_permissions: Arc::new(DashMap::new()),
         }
     }
 
@@ -419,7 +422,7 @@ impl SCServer {
             frame_extraction_semaphore: Arc::new(tokio::sync::Semaphore::new(3)),
             hot_frame_cache,
             archive_state: crate::archive::ArchiveState::new(),
-            pipe_permissions: Arc::new(DashMap::new()),
+            pipe_permissions: self.pipe_permissions.clone(),
         });
 
         let cors = CorsLayer::new()

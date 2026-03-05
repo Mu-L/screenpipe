@@ -15,10 +15,34 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use screenpipe_core::pipes::permissions::PipePermissions;
+use dashmap::DashMap;
+use screenpipe_core::pipes::permissions::{PipePermissions, PipeTokenRegistry};
 use std::sync::Arc;
 
 use crate::server::AppState;
+
+/// Wrapper that implements PipeTokenRegistry for the server's DashMap.
+/// Passed to PipeManager so it can register/remove tokens from screenpipe-core.
+pub struct DashMapTokenRegistry {
+    map: Arc<DashMap<String, Arc<PipePermissions>>>,
+}
+
+impl DashMapTokenRegistry {
+    pub fn new(map: Arc<DashMap<String, Arc<PipePermissions>>>) -> Self {
+        Self { map }
+    }
+}
+
+#[async_trait::async_trait]
+impl PipeTokenRegistry for DashMapTokenRegistry {
+    async fn register_token(&self, token: String, perms: PipePermissions) {
+        self.map.insert(token, Arc::new(perms));
+    }
+
+    async fn remove_token(&self, token: &str) {
+        self.map.remove(token);
+    }
+}
 
 /// Extract a pipe token from the Authorization header.
 fn extract_pipe_token(req: &Request<Body>) -> Option<String> {
