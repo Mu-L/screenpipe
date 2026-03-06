@@ -2663,6 +2663,11 @@ impl DatabaseManager {
         if let Some(is_focused) = focused {
             frame_fts_parts.push(format!("focused:{}", if is_focused { "1" } else { "0" }));
         }
+        if let Some(frame_name) = frame_name {
+            if !frame_name.is_empty() {
+                frame_fts_parts.push(format!("name:\"{}\"", frame_name.replace('"', "")));
+            }
+        }
 
         let frame_query = frame_fts_parts.join(" ");
         let ocr_query = ocr_fts_parts.join(" ");
@@ -2671,25 +2676,37 @@ impl DatabaseManager {
         let sql = match content_type {
             ContentType::OCR => format!(
                 r#"SELECT COUNT(DISTINCT frames.id)
-                   FROM {base_table}
-                   WHERE {where_clause}
+                   FROM frames
+                   LEFT JOIN video_chunks ON frames.video_chunk_id = video_chunks.id
+                   JOIN ocr_text ON frames.id = ocr_text.frame_id
+                   {frame_fts_join}
+                   {ocr_fts_join}
+                   WHERE 1=1
+                       {frame_fts_condition}
+                       {ocr_fts_condition}
                        AND (?2 IS NULL OR frames.timestamp >= ?2)
                        AND (?3 IS NULL OR frames.timestamp <= ?3)
                        AND (?4 IS NULL OR COALESCE(ocr_text.text_length, LENGTH(ocr_text.text)) >= ?4)
-                       AND (?5 IS NULL OR COALESCE(ocr_text.text_length, LENGTH(ocr_text.text)) <= ?5)
-                       AND (?6 IS NULL OR frames.name LIKE '%' || ?6 || '%')"#,
-                base_table = if ocr_query.is_empty() {
-                    "frames
-                     JOIN ocr_text ON frames.id = ocr_text.frame_id"
+                       AND (?5 IS NULL OR COALESCE(ocr_text.text_length, LENGTH(ocr_text.text)) <= ?5)"#,
+                frame_fts_join = if frame_query.trim().is_empty() {
+                    ""
                 } else {
-                    "ocr_text_fts
-                     JOIN ocr_text ON ocr_text_fts.frame_id = ocr_text.frame_id
-                     JOIN frames ON ocr_text.frame_id = frames.id"
+                    "JOIN frames_fts ON frames.id = frames_fts.id"
                 },
-                where_clause = if ocr_query.is_empty() {
-                    "1=1"
+                ocr_fts_join = if ocr_query.trim().is_empty() {
+                    ""
                 } else {
-                    "ocr_text_fts MATCH ?1"
+                    "JOIN ocr_text_fts ON ocr_text.frame_id = ocr_text_fts.frame_id"
+                },
+                frame_fts_condition = if frame_query.trim().is_empty() {
+                    ""
+                } else {
+                    "AND frames_fts MATCH ?1"
+                },
+                ocr_fts_condition = if ocr_query.trim().is_empty() {
+                    ""
+                } else {
+                    "AND ocr_text_fts MATCH ?6"
                 }
             ),
             ContentType::Accessibility => format!(
@@ -2799,18 +2816,20 @@ impl DatabaseManager {
         let count: i64 = match content_type {
             ContentType::OCR => {
                 sqlx::query_scalar(&sql)
-                    .bind(if frame_query.is_empty() && ocr_query.is_empty() {
-                        "*".to_owned()
-                    } else if frame_query.is_empty() {
-                        ocr_query
+                    .bind(if frame_query.is_empty() {
+                        None
                     } else {
-                        frame_query
+                        Some(&frame_query)
                     })
                     .bind(start_time)
                     .bind(end_time)
                     .bind(min_length.map(|l| l as i64))
                     .bind(max_length.map(|l| l as i64))
-                    .bind(frame_name)
+                    .bind(if ocr_query.is_empty() {
+                        None
+                    } else {
+                        Some(&ocr_query)
+                    })
                     .fetch_one(&self.pool)
                     .await?
             }
