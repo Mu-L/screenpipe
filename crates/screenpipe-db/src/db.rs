@@ -2705,25 +2705,37 @@ impl DatabaseManager {
         let sql = match content_type {
             ContentType::OCR => format!(
                 r#"SELECT COUNT(DISTINCT frames.id)
-                   FROM {base_table}
-                   WHERE {where_clause}
+                   FROM frames
+                   JOIN ocr_text ON frames.id = ocr_text.frame_id
+                   {frame_fts_join}
+                   {ocr_fts_join}
+                   WHERE 1=1
+                       {frame_fts_condition}
+                       {ocr_fts_condition}
                        AND (?2 IS NULL OR frames.timestamp >= ?2)
                        AND (?3 IS NULL OR frames.timestamp <= ?3)
                        AND (?4 IS NULL OR COALESCE(ocr_text.text_length, LENGTH(ocr_text.text)) >= ?4)
                        AND (?5 IS NULL OR COALESCE(ocr_text.text_length, LENGTH(ocr_text.text)) <= ?5)
                        AND (?6 IS NULL OR frames.name LIKE '%' || ?6 || '%')"#,
-                base_table = if ocr_query.is_empty() {
-                    "frames
-                     JOIN ocr_text ON frames.id = ocr_text.frame_id"
+                frame_fts_join = if frame_query.is_empty() {
+                    ""
                 } else {
-                    "ocr_text_fts
-                     JOIN ocr_text ON ocr_text.rowid = ocr_text_fts.rowid
-                     JOIN frames ON ocr_text.frame_id = frames.id"
+                    "JOIN frames_fts ON frames.id = frames_fts.id"
                 },
-                where_clause = if ocr_query.is_empty() {
-                    "1=1"
+                ocr_fts_join = if ocr_query.is_empty() {
+                    ""
                 } else {
-                    "ocr_text_fts MATCH ?1"
+                    "JOIN ocr_text_fts ON ocr_text.rowid = ocr_text_fts.rowid"
+                },
+                frame_fts_condition = if frame_query.is_empty() {
+                    ""
+                } else {
+                    "AND frames_fts MATCH ?7"
+                },
+                ocr_fts_condition = if ocr_query.is_empty() {
+                    ""
+                } else {
+                    "AND ocr_text_fts MATCH ?1"
                 }
             ),
             ContentType::Accessibility => format!(
@@ -2832,21 +2844,30 @@ impl DatabaseManager {
 
         let count: i64 = match content_type {
             ContentType::OCR => {
-                sqlx::query_scalar(&sql)
-                    .bind(if frame_query.is_empty() && ocr_query.is_empty() {
-                        "*".to_owned()
-                    } else if frame_query.is_empty() {
-                        ocr_query
+                let mut query = sqlx::query_scalar(&sql)
+                    // ?1: ocr_query (bound even if unused to align parameters)
+                    .bind(if ocr_query.is_empty() {
+                        None
                     } else {
-                        frame_query
+                        Some(&ocr_query)
                     })
+                    // ?2
                     .bind(start_time)
+                    // ?3
                     .bind(end_time)
+                    // ?4
                     .bind(min_length.map(|l| l as i64))
+                    // ?5
                     .bind(max_length.map(|l| l as i64))
-                    .bind(frame_name)
-                    .fetch_one(&self.pool)
-                    .await?
+                    // ?6
+                    .bind(frame_name);
+
+                // ?7: frame_query
+                if !frame_query.is_empty() {
+                    query = query.bind(&frame_query);
+                }
+
+                query.fetch_one(&self.pool).await?
             }
             ContentType::Accessibility => {
                 sqlx::query_scalar(&sql)

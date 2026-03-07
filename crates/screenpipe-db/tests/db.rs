@@ -1987,4 +1987,137 @@ mod tests {
             .unwrap();
         assert_eq!(count, 0, "Should count 0 for non-matching query");
     }
+
+    #[tokio::test]
+    async fn test_search_ocr_app_name_filter() {
+        // Initialize tracing for debug output (optional, but helpful)
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .try_init();
+            
+        let db = setup_test_db().await;
+
+        let _ = db
+            .insert_video_chunk("test_video.mp4", "test_device")
+            .await
+            .unwrap();
+        
+        let frame_id1 = db
+            .insert_frame(
+                "test_device",
+                None,
+                None,
+                Some("zoom.us"), // app_name with dot
+                Some("Meeting"),
+                false,
+                None,
+            )
+            .await
+            .unwrap();
+        
+        db.insert_ocr_text(
+            frame_id1,
+            "important meeting content",
+            "",
+            Arc::new(OcrEngine::Tesseract),
+        )
+        .await
+        .unwrap();
+
+        let frame_id2 = db
+            .insert_frame(
+                "test_device",
+                None,
+                None,
+                Some("slack"),
+                Some("Channel"),
+                false,
+                None,
+            )
+            .await
+            .unwrap();
+            
+        db.insert_ocr_text(
+            frame_id2,
+            "slack message content",
+            "",
+            Arc::new(OcrEngine::Tesseract),
+        )
+        .await
+        .unwrap();
+
+        // 1. Test count_search_results with app_name filter (dot included)
+        let count = db
+            .count_search_results(
+                "content", 
+                ContentType::OCR,
+                None,
+                None,
+                Some("zoom.us"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        
+        assert_eq!(count, 1, "Should count 1 result for zoom.us");
+
+        // 2. Test search with app_name filter
+        let results = db
+            .search(
+                "content",
+                ContentType::OCR,
+                100,
+                0,
+                None,
+                None,
+                Some("zoom.us"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+            
+        assert_eq!(results.len(), 1);
+        if let SearchResult::OCR(ocr) = &results[0] {
+            assert_eq!(ocr.app_name, "zoom.us");
+        } else {
+            panic!("Expected OCR result");
+        }
+
+        // 3. Test count with app_name filter but NO query (empty q)
+        // This exercises the path where ocr_query is empty but frame_query is not
+        let count_empty_q = db
+            .count_search_results(
+                "", 
+                ContentType::OCR,
+                None,
+                None,
+                Some("zoom.us"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+            
+        assert_eq!(count_empty_q, 1, "Should count 1 result for zoom.us with empty query");
+    }
 }
