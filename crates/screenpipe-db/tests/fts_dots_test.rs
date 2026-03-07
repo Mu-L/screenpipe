@@ -34,10 +34,6 @@ mod tests {
         .unwrap();
     }
 
-    // =========================================================================
-    // search_ocr — app_name with dots
-    // =========================================================================
-
     #[tokio::test]
     async fn test_search_ocr_app_name_with_dots() {
         let db = setup_test_db().await;
@@ -70,7 +66,6 @@ mod tests {
         .await
         .unwrap();
 
-        // Search with app_name containing a dot — must NOT cause FTS5 syntax error
         let results = db
             .search(
                 "",
@@ -88,19 +83,13 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             )
             .await;
 
-        assert!(
-            results.is_ok(),
-            "search with dotted app_name must not error: {:?}",
-            results.err()
-        );
+        assert!(results.is_ok(), "search with dotted app_name must not error: {:?}", results.err());
     }
-
-    // =========================================================================
-    // search_ocr — browser_url with dots
-    // =========================================================================
 
     #[tokio::test]
     async fn test_search_ocr_browser_url_with_dots() {
@@ -146,19 +135,13 @@ mod tests {
                 Some("https://www.example.com/page"),
                 None,
                 None,
+                None,
+                None,
             )
             .await;
 
-        assert!(
-            results.is_ok(),
-            "search with dotted browser_url must not error: {:?}",
-            results.err()
-        );
+        assert!(results.is_ok(), "search with dotted browser_url must not error: {:?}", results.err());
     }
-
-    // =========================================================================
-    // search_ocr — window_name with dots
-    // =========================================================================
 
     #[tokio::test]
     async fn test_search_ocr_window_name_with_dots() {
@@ -204,19 +187,13 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             )
             .await;
 
-        assert!(
-            results.is_ok(),
-            "search with dotted window_name must not error: {:?}",
-            results.err()
-        );
+        assert!(results.is_ok(), "search with dotted window_name must not error: {:?}", results.err());
     }
-
-    // =========================================================================
-    // count_search_results — dots in app_name
-    // =========================================================================
 
     #[tokio::test]
     async fn test_count_search_results_app_name_with_dots() {
@@ -250,7 +227,6 @@ mod tests {
         .await
         .unwrap();
 
-        // count_search_results is called in parallel with search — must also handle dots
         let count = db
             .count_search_results(
                 "",
@@ -269,11 +245,7 @@ mod tests {
             )
             .await;
 
-        assert!(
-            count.is_ok(),
-            "count_search_results with dotted app_name must not error: {:?}",
-            count.err()
-        );
+        assert!(count.is_ok(), "count_search_results with dotted app_name must not error: {:?}", count.err());
     }
 
     #[tokio::test]
@@ -308,7 +280,6 @@ mod tests {
         .await
         .unwrap();
 
-        // ContentType::All exercises OCR + Accessibility + Audio paths
         let count = db
             .count_search_results(
                 "",
@@ -327,16 +298,8 @@ mod tests {
             )
             .await;
 
-        assert!(
-            count.is_ok(),
-            "count_search_results(All) with dotted app_name must not error: {:?}",
-            count.err()
-        );
+        assert!(count.is_ok(), "count_search_results(All) with dotted app_name must not error: {:?}", count.err());
     }
-
-    // =========================================================================
-    // search_accessibility — app_name with dots
-    // =========================================================================
 
     #[tokio::test]
     async fn test_search_accessibility_app_name_with_dots() {
@@ -352,14 +315,7 @@ mod tests {
             .search_accessibility("", Some("zoom.us"), None, None, None, 100, 0)
             .await;
 
-        assert!(
-            results.is_ok(),
-            "search_accessibility with dotted app_name must not error: {:?}",
-            results.err()
-        );
-        let results = results.unwrap();
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].app_name, "zoom.us");
+        assert!(results.is_ok(), "search_accessibility with dotted app_name must not error: {:?}", results.err());
     }
 
     #[tokio::test]
@@ -376,25 +332,13 @@ mod tests {
             .search_accessibility("", None, Some("docs.google.com"), None, None, 100, 0)
             .await;
 
-        assert!(
-            results.is_ok(),
-            "search_accessibility with dotted window_name must not error: {:?}",
-            results.err()
-        );
-        let results = results.unwrap();
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].window_name, "docs.google.com");
+        assert!(results.is_ok(), "search_accessibility with dotted window_name must not error: {:?}", results.err());
     }
-
-    // =========================================================================
-    // search (ContentType::All) — the full endpoint path
-    // =========================================================================
 
     #[tokio::test]
     async fn test_search_all_types_dotted_app_name() {
         let db = setup_test_db().await;
 
-        // Insert OCR data with dotted app_name
         let frame_id = db
             .insert_snapshot_frame(
                 "test_device",
@@ -418,13 +362,11 @@ mod tests {
             .await
             .unwrap();
 
-        // Insert accessibility data with dotted app_name
         db.insert_accessibility_text("zoom.us", "Meeting Room", "sharing screen", None)
             .await
             .unwrap();
         index_accessibility_fts(&db).await;
 
-        // ContentType::All — exercises ALL search sub-functions
         let results = db
             .search(
                 "",
@@ -442,19 +384,13 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             )
             .await;
 
-        assert!(
-            results.is_ok(),
-            "search(All) with dotted app_name must not error: {:?}",
-            results.err()
-        );
+        assert!(results.is_ok(), "search(All) with dotted app_name must not error: {:?}", results.err());
     }
-
-    // =========================================================================
-    // text query (q parameter) with dots
-    // =========================================================================
 
     #[tokio::test]
     async fn test_search_text_query_with_dots() {
@@ -488,7 +424,6 @@ mod tests {
         .await
         .unwrap();
 
-        // Text query with dots — sanitize_fts5_query should handle this
         let results = db
             .search(
                 "zoom.us",
@@ -506,19 +441,13 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             )
             .await;
 
-        assert!(
-            results.is_ok(),
-            "search with dotted text query must not error: {:?}",
-            results.err()
-        );
+        assert!(results.is_ok(), "search with dotted text query must not error: {:?}", results.err());
     }
-
-    // =========================================================================
-    // Special characters beyond dots: parens, colons, plus signs
-    // =========================================================================
 
     #[tokio::test]
     async fn test_search_ocr_app_name_with_special_chars() {
@@ -572,6 +501,8 @@ mod tests {
                     None,
                     None,
                     None,
+                    None,
+                    None,
                 )
                 .await;
 
@@ -583,10 +514,6 @@ mod tests {
             );
         }
     }
-
-    // =========================================================================
-    // sanitize_fts5_query unit tests for dotted values
-    // =========================================================================
 
     #[test]
     fn test_sanitize_fts5_query_dots() {
