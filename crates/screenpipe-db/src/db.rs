@@ -2136,33 +2136,10 @@ impl DatabaseManager {
             .await
             .map_err(|_| SqlxError::Protocol("heavy_read_semaphore closed".to_string()))?;
 
-        let mut frame_fts_parts = Vec::new();
-
-        if let Some(app) = app_name {
-            if !app.is_empty() {
-                frame_fts_parts.push(format!("app_name:\"{}\"", app.replace('"', "")));
-            }
-        }
-        if let Some(window) = window_name {
-            if !window.is_empty() {
-                frame_fts_parts.push(format!("window_name:\"{}\"", window.replace('"', "")));
-            }
-        }
-        if let Some(browser) = browser_url {
-            if !browser.is_empty() {
-                frame_fts_parts.push(format!("browser_url:\"{}\"", browser.replace('"', "")));
-            }
-        }
-        if let Some(is_focused) = focused {
-            frame_fts_parts.push(format!("focused:{}", if is_focused { "1" } else { "0" }));
-        }
-        if let Some(frame_name) = frame_name {
-            if !frame_name.is_empty() {
-                frame_fts_parts.push(format!("name:\"{}\"", frame_name.replace('"', "")));
-            }
-        }
-
-        let frame_query = frame_fts_parts.join(" ");
+        // Metadata filters are now applied via standard SQL WHERE clause instead of FTS
+        // to avoid syntax errors with special characters (e.g. dots in app names)
+        // and to utilize standard indexes.
+        let frame_query = String::new(); // Empty implies no frames_fts join needed for metadata
 
         let sql = format!(
             r#"
@@ -2197,6 +2174,11 @@ impl DatabaseManager {
             AND (?5 IS NULL OR COALESCE(ocr_text.text_length, LENGTH(ocr_text.text)) <= ?5)
             AND (?9 IS NULL OR COALESCE(video_chunks.device_name, frames.device_name) LIKE '%' || ?9 || '%')
             AND (?10 IS NULL OR frames.machine_id = ?10)
+            AND (?11 IS NULL OR frames.app_name = ?11)
+            AND (?12 IS NULL OR frames.window_name = ?12)
+            AND (?13 IS NULL OR frames.browser_url = ?13)
+            AND (?14 IS NULL OR frames.focused = ?14)
+            AND (?15 IS NULL OR frames.name = ?15)
         GROUP BY frames.id
         ORDER BY {order_clause}
         LIMIT ?7 OFFSET ?8
@@ -2250,6 +2232,11 @@ impl DatabaseManager {
             .bind(offset)
             .bind(device_name)
             .bind(machine_id)
+            .bind(app_name)
+            .bind(window_name)
+            .bind(browser_url)
+            .bind(focused)
+            .bind(frame_name)
             .fetch_all(&self.pool)
             .await?;
 
@@ -3409,12 +3396,6 @@ impl DatabaseManager {
         if !query.is_empty() {
             fts_parts.push(crate::text_normalizer::sanitize_fts5_query(query));
         }
-        if let Some(app) = app_name {
-            fts_parts.push(format!("app_name:\"{}\"", app.replace('"', "")));
-        }
-        if let Some(window) = window_name {
-            fts_parts.push(format!("window_name:\"{}\"", window.replace('"', "")));
-        }
         let combined_query = fts_parts.join(" ");
 
         let base_sql = if combined_query.is_empty() {
@@ -3451,6 +3432,8 @@ impl DatabaseManager {
             {}
                 AND (?2 IS NULL OR datetime(accessibility.timestamp) >= datetime(?2))
                 AND (?3 IS NULL OR datetime(accessibility.timestamp) <= datetime(?3))
+                AND (?6 IS NULL OR accessibility.app_name = ?6)
+                AND (?7 IS NULL OR accessibility.window_name = ?7)
             GROUP BY accessibility.id
             ORDER BY accessibility.timestamp DESC
             LIMIT ?4 OFFSET ?5
@@ -3468,6 +3451,8 @@ impl DatabaseManager {
             .bind(end_time)
             .bind(limit)
             .bind(offset)
+            .bind(app_name)
+            .bind(window_name)
             .fetch_all(&self.pool)
             .await
     }
