@@ -23,6 +23,26 @@ use tauri_plugin_updater::UpdaterExt;
 use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 use tokio::time::interval;
+use std::sync::OnceLock;
+
+fn is_macos_admin() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        static IS_ADMIN: OnceLock<bool> = OnceLock::new();
+        *IS_ADMIN.get_or_init(|| {
+            if let Ok(output) = std::process::Command::new("id").arg("-Gn").output() {
+                if let Ok(groups) = String::from_utf8(output.stdout) {
+                    return groups.split_whitespace().any(|g| g == "admin");
+                }
+            }
+            true // default to true if check fails
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Rollback: download a specific older version from R2 via the website API
@@ -247,6 +267,35 @@ impl UpdatesManager {
         }
         if let Some(update) = check_result? {
             *self.update_available.lock().await = true;
+
+            if !is_macos_admin() {
+                warn!("skipping auto-update: user is not a macOS admin");
+                
+                let update_info = serde_json::json!({
+                    "version": update.version,
+                    "body": update.body.clone().unwrap_or_default()
+                });
+                let _ = self.app.emit("update-needs-admin", update_info);
+                
+                let app_notif = self.app.clone();
+                let version_str = update.version.clone();
+                // std::thread::spawn (not spawn_blocking) to escape tokio runtime context entirely.
+                let _ = std::thread::spawn(move || {
+                    let _ = app_notif
+                        .notification()
+                        .builder()
+                        .title("screenpipe update available")
+                        .body(format!("v{} is ready — ask your admin to install it", version_str))
+                        .show();
+                });
+                
+                if let Some(ref item) = self.update_menu_item {
+                    let _ = item.set_enabled(false);
+                    let _ = item.set_text("Update available (needs admin)");
+                }
+                
+                return Ok(true);
+            }
 
             // Emit "update-downloading" immediately so user sees feedback
             let download_info = serde_json::json!({
@@ -632,4 +681,19 @@ pub fn start_update_check(
     });
 
     Ok(updates_manager)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_macos_admin() {
+        // We just ensure it doesn't crash and returns a boolean.
+        let is_admin = is_macos_admin();
+        println!("test_is_macos_admin: {}", is_admin);
+        
+        #[cfg(not(target_os = "macos"))]
+        assert!(is_admin, "Should always be true on non-macos platforms");
+    }
 }
