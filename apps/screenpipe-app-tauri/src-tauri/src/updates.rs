@@ -120,6 +120,25 @@ pub fn is_enterprise_build(_app: &tauri::AppHandle) -> bool {
     cfg!(feature = "enterprise-build")
 }
 
+static IS_MACOS_ADMIN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+pub fn is_macos_admin() -> bool {
+    *IS_MACOS_ADMIN.get_or_init(|| {
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(output) = std::process::Command::new("id").arg("-Gn").output() {
+                let groups = String::from_utf8_lossy(&output.stdout);
+                return groups.split_whitespace().any(|g| g == "admin");
+            }
+            false
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            true
+        }
+    })
+}
+
 pub struct UpdatesManager {
     interval: Duration,
     update_available: Arc<Mutex<bool>>,
@@ -247,6 +266,54 @@ impl UpdatesManager {
         }
         if let Some(update) = check_result? {
             *self.update_available.lock().await = true;
+
+            if !is_macos_admin() {
+                warn!("skipping auto-update: user is not a macOS admin");
+                let _ = self.app.emit(
+                    "update-needs-admin",
+                    serde_json::json!({
+                        "version": update.version,
+                        "message": "update available — ask your admin to install it",
+                    }),
+                );
+                
+                let app_notif = self.app.clone();
+                let version_str = update.version.clone();
+                std::thread::spawn(move || {
+                    let _ = app_notif
+                        .notification()
+                        .builder()
+                        .title("screenpipe update available")
+                        .body(format!("v{} is ready — ask your admin to install it", version_str))
+                        .show();
+                });
+                
+                if let Some(ref item) = self.update_menu_item {
+                    item.set_enabled(false)?;
+                    item.set_text(&format!("v{} requires admin to install", update.version))?;
+                }
+                
+                // Still update the tray icon
+                if let Some(tray) = self.app.tray_by_id("screenpipe_main") {
+                    let theme = dark_light::detect().unwrap_or(Mode::Dark);
+                    let icon_path = if theme == Mode::Light {
+                        "assets/screenpipe-logo-tray-updates-black.png"
+                    } else {
+                        "assets/screenpipe-logo-tray-updates-white.png"
+                    };
+
+                    let path = self
+                        .app
+                        .path()
+                        .resolve(icon_path, tauri::path::BaseDirectory::Resource)?;
+
+                    if let Ok(image) = tauri::image::Image::from_path(path) {
+                        let _ = crate::safe_icon::safe_set_icon_as_template(&tray, image);
+                    }
+                }
+                
+                return Ok(true);
+            }
 
             // Emit "update-downloading" immediately so user sees feedback
             let download_info = serde_json::json!({
@@ -632,4 +699,15 @@ pub fn start_update_check(
     });
 
     Ok(updates_manager)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_macos_admin() {
+        let admin = is_macos_admin();
+        println!("is_macos_admin: {}", admin);
+    }
 }
