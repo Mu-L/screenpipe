@@ -46,6 +46,8 @@ pub struct DiskUsedByOther {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CachedDiskUsage {
     pub timestamp: i64,
+    #[serde(default)]
+    pub screenpipe_dir: Option<String>,
     pub usage: DiskUsage,
 }
 
@@ -111,7 +113,12 @@ pub async fn disk_usage(
     };
 
     fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
-    let cache_file = cache_dir.join("disk_usage.json");
+    
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    use std::hash::{Hash, Hasher};
+    screenpipe_dir.hash(&mut hasher);
+    let path_hash = hasher.finish();
+    let cache_file = cache_dir.join(format!("disk_usage_{}.json", path_hash));
 
     // Skip cache if force_refresh is requested
     if !force_refresh {
@@ -121,12 +128,16 @@ pub async fn disk_usage(
             } else if let Ok(cached) = serde_json::from_str::<CachedDiskUsage>(&content) {
                 let now = chrono::Local::now().timestamp();
                 let one_hour = 60 * 60; // 1 hour cache (reduced from 2 days)
-                if now - cached.timestamp < one_hour {
+                let is_same_dir = cached.screenpipe_dir.as_deref() == Some(screenpipe_dir.to_string_lossy().as_ref());
+                
+                if now - cached.timestamp < one_hour && is_same_dir {
                     info!(
                         "Using cached disk usage data (age: {}s)",
                         now - cached.timestamp
                     );
                     return Ok(Some(cached.usage));
+                } else if !is_same_dir {
+                    info!("Cache is for different directory, recalculating...");
                 }
             }
         }
@@ -359,6 +370,7 @@ pub async fn disk_usage(
     // Cache the result
     let cached = CachedDiskUsage {
         timestamp: chrono::Local::now().timestamp(),
+        screenpipe_dir: Some(screenpipe_dir.to_string_lossy().into_owned()),
         usage: disk_usage.clone(),
     };
 

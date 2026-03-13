@@ -38,6 +38,7 @@ export function useDiskUsage() {
   const [diskUsage, setDiskUsage] = useState<DiskUsage | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dataDirPath, setDataDirPath] = useState<string>("~/.screenpipe");
 
   const fetchDiskUsage = async (forceRefresh: boolean = false) => {
     try {
@@ -45,6 +46,7 @@ export function useDiskUsage() {
       setError(null);
 
       const dataDir = await getDataDir();
+      setDataDirPath(dataDir);
       // Add a small delay to show loading state for very fast calculations
       const [result] = await Promise.all([
         invoke<DiskUsage>("get_disk_usage", { forceRefresh, dataDir }),
@@ -89,5 +91,6 @@ export function useDiskUsage() {
     isLoading,
     error,
     refetch: () => fetchDiskUsage(true), // Force refresh when user clicks refresh
+    dataDirPath,
   };
 } 

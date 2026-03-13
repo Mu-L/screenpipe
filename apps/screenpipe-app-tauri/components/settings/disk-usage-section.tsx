@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { Progress } from "../ui/progress";
 
 export function DiskUsageSection() {
-  const { diskUsage, isLoading, error, refetch } = useDiskUsage();
+  const { diskUsage, isLoading, error, refetch, dataDirPath } = useDiskUsage();
 
   const handleRefresh = () => {
     refetch();
@@ -61,7 +61,7 @@ export function DiskUsageSection() {
           </Button>
         </div>
         <p className="text-muted-foreground text-sm">
-          Storage usage at ~/.screenpipe
+          Storage usage at {dataDirPath || "~/.screenpipe"}
         </p>
       </div>
 
@@ -194,7 +194,7 @@ export function DiskUsageSection() {
                 <span className={cn("font-medium", diskUsage?.other?.logs_size?.includes("GB") && "text-destructive")}>{diskUsage?.other?.logs_size || "0 KB"}</span>
               </div>
               {diskUsage?.other?.logs_size?.includes("GB") && (
-                <p className="text-[11px] text-destructive mt-1">⚠️ Logs are large. Delete old ones at ~/.screenpipe/*.log</p>
+                <p className="text-[11px] text-destructive mt-1">⚠️ Logs are large. Delete old ones at {dataDirPath || "~/.screenpipe"}/*.log</p>
               )}
             </div>
           )}
