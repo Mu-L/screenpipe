@@ -55,12 +55,15 @@ pub struct RecordingSettings {
     pub use_system_default_audio: bool,
 
     /// Duration of each audio chunk in seconds before transcription.
+    /// Stored as i32 to match existing store.bin schema (cast to u64 by engine).
     #[serde(rename = "audioChunkDuration")]
-    pub audio_chunk_duration: u64,
+    pub audio_chunk_duration: i32,
 
-    /// Deepgram API key for cloud transcription (None = not configured).
-    #[serde(rename = "deepgramApiKey", default, skip_serializing_if = "Option::is_none")]
-    pub deepgram_api_key: Option<String>,
+    /// Deepgram API key for cloud transcription.
+    /// Empty string or "default" means not configured.
+    /// Kept as String (not Option) to match existing store.bin schema.
+    #[serde(rename = "deepgramApiKey")]
+    pub deepgram_api_key: String,
 
     /// VAD sensitivity level: "low", "medium", "high".
     #[serde(rename = "vadSensitivity")]
@@ -73,12 +76,12 @@ pub struct RecordingSettings {
     /// Maximum batch duration in seconds for batch transcription.
     /// None = use engine-aware defaults (Deepgram=3600s, Whisper/OpenAI=600s).
     /// Previously stored in SettingsStore.extra["batchMaxDurationSecs"].
-    #[serde(rename = "batchMaxDurationSecs", default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "batchMaxDurationSecs", default)]
     pub batch_max_duration_secs: Option<u64>,
 
     /// Custom vocabulary for transcription biasing and word replacement.
     /// Previously stored in SettingsStore.extra["vocabularyWords"].
-    #[serde(rename = "vocabularyWords", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(rename = "vocabularyWords", default)]
     pub vocabulary: Vec<VocabEntry>,
 
     // ── Vision ─────────────────────────────────────────────────────────
@@ -135,29 +138,30 @@ pub struct RecordingSettings {
 
     // ── Cloud / Auth ───────────────────────────────────────────────────
 
-    /// Screenpipe cloud user ID (None = not logged in).
-    #[serde(rename = "userId", default, skip_serializing_if = "Option::is_none")]
-    pub user_id: Option<String>,
+    /// Screenpipe cloud user ID. Empty string means not logged in.
+    /// Kept as String (not Option) to match existing store.bin schema.
+    #[serde(rename = "userId")]
+    pub user_id: String,
 
     /// Display name for speaker identification.
     /// Fallback chain: this field → cloud auth name → cloud auth email.
     /// Previously stored in SettingsStore.extra["userName"].
-    #[serde(rename = "userName", default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "userName", default)]
     pub user_name: Option<String>,
 
     /// OpenAI-compatible transcription endpoint URL.
     /// Previously stored in SettingsStore.extra["openaiCompatibleEndpoint"].
-    #[serde(rename = "openaiCompatibleEndpoint", default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "openaiCompatibleEndpoint", default)]
     pub openai_compatible_endpoint: Option<String>,
 
     /// OpenAI-compatible transcription API key.
     /// Previously stored in SettingsStore.extra["openaiCompatibleApiKey"].
-    #[serde(rename = "openaiCompatibleApiKey", default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "openaiCompatibleApiKey", default)]
     pub openai_compatible_api_key: Option<String>,
 
     /// OpenAI-compatible transcription model name.
     /// Previously stored in SettingsStore.extra["openaiCompatibleModel"].
-    #[serde(rename = "openaiCompatibleModel", default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "openaiCompatibleModel", default)]
     pub openai_compatible_model: Option<String>,
 
     // ── System ─────────────────────────────────────────────────────────
@@ -167,7 +171,7 @@ pub struct RecordingSettings {
 
     /// Power mode preference: "auto", "performance", "battery_saver".
     /// Previously stored in SettingsStore.extra["powerMode"].
-    #[serde(rename = "powerMode", default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "powerMode", default)]
     pub power_mode: Option<String>,
 
     /// Use Chinese mirror for Hugging Face model downloads.
@@ -191,6 +195,29 @@ pub struct RecordingSettings {
     pub enable_accessibility: bool,
 }
 
+impl RecordingSettings {
+    /// Returns the Deepgram API key if actually configured.
+    /// Treats empty string and "default" as not configured (matching existing behavior).
+    pub fn effective_deepgram_key(&self) -> Option<&str> {
+        let key = self.deepgram_api_key.as_str();
+        if key.is_empty() || key == "default" {
+            None
+        } else {
+            Some(key)
+        }
+    }
+
+    /// Returns the user ID if actually set (non-empty).
+    pub fn effective_user_id(&self) -> Option<&str> {
+        let id = self.user_id.as_str();
+        if id.is_empty() {
+            None
+        } else {
+            Some(id)
+        }
+    }
+}
+
 impl Default for RecordingSettings {
     fn default() -> Self {
         Self {
@@ -200,7 +227,7 @@ impl Default for RecordingSettings {
             audio_devices: vec![],
             use_system_default_audio: true,
             audio_chunk_duration: 30,
-            deepgram_api_key: None,
+            deepgram_api_key: String::new(),
             vad_sensitivity: "high".to_string(),
             filter_music: false,
             batch_max_duration_secs: None,
@@ -217,7 +244,7 @@ impl Default for RecordingSettings {
             ignore_incognito_windows: true,
             languages: vec![],
             use_pii_removal: false,
-            user_id: None,
+            user_id: String::new(),
             user_name: None,
             openai_compatible_endpoint: None,
             openai_compatible_api_key: None,
@@ -293,6 +320,137 @@ mod tests {
         let json = r#"{"unknownFutureField": true, "port": 4040}"#;
         let settings: RecordingSettings = serde_json::from_str(json).unwrap();
         assert_eq!(settings.port, 4040);
+    }
+
+    #[test]
+    fn deserializes_real_store_bin_shape() {
+        // Simulates the JSON shape of a real existing store.bin file.
+        // All recording-related fields as they exist today in SettingsStore.
+        let json = r#"{
+            "disableAudio": false,
+            "audioTranscriptionEngine": "whisper-large-v3-turbo",
+            "audioDevices": ["MacBook Pro Microphone"],
+            "useSystemDefaultAudio": true,
+            "audioChunkDuration": 30,
+            "deepgramApiKey": "",
+            "vadSensitivity": "high",
+            "filterMusic": false,
+            "disableVision": false,
+            "monitorIds": [],
+            "useAllMonitors": true,
+            "fps": 0.5,
+            "adaptiveFps": false,
+            "videoQuality": "balanced",
+            "ignoredWindows": ["Control Center", "Notification Center"],
+            "includedWindows": [],
+            "ignoredUrls": [],
+            "ignoreIncognitoWindows": true,
+            "languages": ["en"],
+            "usePiiRemoval": false,
+            "userId": "abc-123",
+            "port": 3030,
+            "useChineseMirror": false,
+            "analyticsEnabled": true,
+            "analyticsId": "posthog-uuid",
+            "enableInputCapture": true,
+            "enableAccessibility": true,
+
+            "aiPresets": [{"name": "test"}],
+            "showScreenpipeShortcut": "Super+Alt+S",
+            "overlayMode": "fullscreen",
+            "chatAlwaysOnTop": true,
+            "unknownFutureField": 42
+        }"#;
+
+        let settings: RecordingSettings = serde_json::from_str(json).unwrap();
+
+        // Recording fields parsed correctly
+        assert_eq!(settings.audio_transcription_engine, "whisper-large-v3-turbo");
+        assert_eq!(settings.audio_devices, vec!["MacBook Pro Microphone"]);
+        assert_eq!(settings.deepgram_api_key, "");
+        assert_eq!(settings.user_id, "abc-123");
+        assert_eq!(settings.ignored_windows, vec!["Control Center", "Notification Center"]);
+        assert_eq!(settings.analytics_id, "posthog-uuid");
+
+        // Fields that don't exist in RecordingSettings (UI-only) are silently ignored
+        // This is critical for flatten compat — SettingsStore has aiPresets, shortcuts, etc.
+
+        // Fields that were in extra HashMap now have defaults
+        assert_eq!(settings.transcription_mode, "realtime"); // default, wasn't in JSON
+        assert_eq!(settings.power_mode, None); // default
+        assert!(settings.vocabulary.is_empty()); // default
+    }
+
+    #[test]
+    fn flatten_simulation() {
+        // Simulates what happens when SettingsStore uses #[serde(flatten)]
+        // with RecordingSettings. Both structs' fields appear at the same JSON level.
+        #[derive(Serialize, Deserialize)]
+        struct FakeSettingsStore {
+            #[serde(flatten)]
+            recording: RecordingSettings,
+            // UI-only fields
+            #[serde(rename = "overlayMode", default)]
+            overlay_mode: String,
+            #[serde(rename = "showScreenpipeShortcut", default)]
+            show_screenpipe_shortcut: String,
+            // Catch-all for truly unknown fields
+            #[serde(flatten)]
+            extra: std::collections::HashMap<String, serde_json::Value>,
+        }
+
+        let json = r#"{
+            "port": 4040,
+            "disableAudio": true,
+            "overlayMode": "window",
+            "showScreenpipeShortcut": "Super+Alt+S",
+            "transcriptionMode": "batch",
+            "chatHistory": [{"msg": "hello"}]
+        }"#;
+
+        let store: FakeSettingsStore = serde_json::from_str(json).unwrap();
+        assert_eq!(store.recording.port, 4040);
+        assert!(store.recording.disable_audio);
+        assert_eq!(store.recording.transcription_mode, "batch");
+        assert_eq!(store.overlay_mode, "window");
+        assert_eq!(store.show_screenpipe_shortcut, "Super+Alt+S");
+        // chatHistory lands in extra (not known by either struct)
+        assert!(store.extra.contains_key("chatHistory"));
+
+        // Round-trip: serialize back and verify recording fields survive
+        let serialized = serde_json::to_string(&store).unwrap();
+        let roundtrip: FakeSettingsStore = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(roundtrip.recording.port, 4040);
+        assert_eq!(roundtrip.recording.transcription_mode, "batch");
+        assert!(roundtrip.extra.contains_key("chatHistory"));
+    }
+
+    #[test]
+    fn helper_deepgram_key_sentinel_values() {
+        // Existing store.bin uses "" and "default" as sentinel for "not configured"
+        let json = r#"{"deepgramApiKey": ""}"#;
+        let s: RecordingSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.deepgram_api_key, "");
+
+        let json = r#"{"deepgramApiKey": "default"}"#;
+        let s: RecordingSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.deepgram_api_key, "default");
+
+        let json = r#"{"deepgramApiKey": "real-api-key-123"}"#;
+        let s: RecordingSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.deepgram_api_key, "real-api-key-123");
+    }
+
+    #[test]
+    fn audio_chunk_duration_accepts_i32() {
+        // SettingsStore has i32, so existing store.bin may have negative-ish or 0 values
+        let json = r#"{"audioChunkDuration": 30}"#;
+        let s: RecordingSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.audio_chunk_duration, 30);
+
+        let json = r#"{"audioChunkDuration": 0}"#;
+        let s: RecordingSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.audio_chunk_duration, 0);
     }
 
     #[test]

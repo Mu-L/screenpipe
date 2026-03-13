@@ -44,16 +44,9 @@ pub fn save_toml(settings: &RecordingSettings, path: &Path) -> Result<(), String
         .map_err(|e| format!("failed to write {}: {}", path.display(), e))
 }
 
-/// Resolve the screenpipe data directory: `~/.screenpipe/`
+/// Resolve the screenpipe config directory: `~/.screenpipe/`
 fn dirs_next() -> Option<PathBuf> {
-    #[cfg(not(target_os = "macos"))]
-    {
-        dirs::home_dir().map(|h| h.join(".screenpipe"))
-    }
-    #[cfg(target_os = "macos")]
-    {
-        dirs::home_dir().map(|h| h.join(".screenpipe"))
-    }
+    dirs::home_dir().map(|h| h.join(".screenpipe"))
 }
 
 #[cfg(test)]
