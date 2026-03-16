@@ -438,6 +438,7 @@ function EncryptionKeyReveal() {
 function ActiveSyncSettings({
   status,
   devices,
+  deviceCounts,
   onToggleSync,
   onTriggerSync,
   onRemoveDevice,
@@ -447,6 +448,7 @@ function ActiveSyncSettings({
 }: {
   status: SyncStatus;
   devices: SyncDevice[];
+  deviceCounts: Record<string, { frames: number; audioChunks: number }>;
   onToggleSync: (enabled: boolean) => void;
   onTriggerSync: () => void;
   onRemoveDevice: (deviceId: string) => void;
@@ -458,21 +460,6 @@ function ActiveSyncSettings({
     status?.storageUsed && status?.storageLimit
       ? (status.storageUsed / status.storageLimit) * 100
       : 0;
-
-  // Fetch local record counts per device
-  const [deviceCounts, setDeviceCounts] = useState<Record<string, { frames: number; audioChunks: number }>>({});
-  useEffect(() => {
-    fetch("http://localhost:3030/data/device-storage")
-      .then((r) => r.ok ? r.json() : [])
-      .then((data: { machine_id: string; frames: number; audio_chunks: number }[]) => {
-        const map: Record<string, { frames: number; audioChunks: number }> = {};
-        for (const d of data) {
-          map[d.machine_id] = { frames: d.frames, audioChunks: d.audio_chunks };
-        }
-        setDeviceCounts(map);
-      })
-      .catch(() => {});
-  }, [devices]);
 
   return (
     <div className="space-y-6">
@@ -625,14 +612,28 @@ function ActiveSyncSettings({
                     </div>
                     {!device.isCurrent && (
                       <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onDeleteDeviceLocalData(device.deviceId)}
-                          title="delete synced data from this device"
-                        >
-                          <span className="text-xs text-muted-foreground">clean local data</span>
-                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="sm" title="delete synced data from this device">
+                              <span className="text-xs text-muted-foreground">clean local data</span>
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Clean local data?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will delete all data synced from {device.deviceName || device.deviceId} on this machine.
+                                To re-sync, disable and re-enable cloud sync.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => onDeleteDeviceLocalData(device.deviceId)}>
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -707,6 +708,7 @@ export function SyncSettings() {
   const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [devices, setDevices] = useState<SyncDevice[]>([]);
+  const [deviceCounts, setDeviceCounts] = useState<Record<string, { frames: number; audioChunks: number }>>({});
   const [config, setConfig] = useState<SyncConfig | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -850,6 +852,19 @@ export function SyncSettings() {
     return false;
   };
 
+  const fetchDeviceCounts = () => {
+    fetch("http://localhost:3030/data/device-storage")
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: { machine_id: string; frames: number; audio_chunks: number }[]) => {
+        const map: Record<string, { frames: number; audioChunks: number }> = {};
+        for (const d of data) {
+          map[d.machine_id] = { frames: d.frames, audioChunks: d.audio_chunks };
+        }
+        setDeviceCounts(map);
+      })
+      .catch(() => {});
+  };
+
   const initSyncBackend = async (): Promise<boolean> => {
     console.log("[sync] initSyncBackend called");
     try {
@@ -861,6 +876,7 @@ export function SyncSettings() {
       setStatus(statusResult);
       setConfig(configResult);
       setDevices(devicesResult);
+      fetchDeviceCounts();
 
       if (statusResult.enabled) {
         setStep("active");
@@ -875,6 +891,7 @@ export function SyncSettings() {
           setStatus(newStatus);
           setConfig(newConfig);
           setDevices(newDevices);
+          fetchDeviceCounts();
           setStep("active");
         } else {
           setStep("password");
@@ -895,6 +912,7 @@ export function SyncSettings() {
           setStatus(newStatus);
           setConfig(newConfig);
           setDevices(newDevices);
+          fetchDeviceCounts();
           setStep("active");
           return true;
         } catch {
@@ -1168,13 +1186,6 @@ export function SyncSettings() {
   };
 
   const handleDeleteDeviceLocalData = async (deviceId: string) => {
-    const confirmed = window.confirm(
-      "this will delete all data synced from this device on your local machine.\n\n" +
-      "to re-sync, disable and re-enable cloud sync.\n\n" +
-      "continue?"
-    );
-    if (!confirmed) return;
-
     try {
       const result = await invoke("delete_device_local_data", { machineId: deviceId });
       const parsed = typeof result === "string" ? JSON.parse(result) : result;
@@ -1254,6 +1265,7 @@ export function SyncSettings() {
       <ActiveSyncSettings
         status={status}
         devices={devices}
+        deviceCounts={deviceCounts}
         onToggleSync={handleToggleSync}
         onTriggerSync={handleTriggerSync}
         onRemoveDevice={handleRemoveDevice}

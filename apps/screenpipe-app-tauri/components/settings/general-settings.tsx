@@ -84,16 +84,12 @@ export default function GeneralSettings() {
 
   return (
     <div className="space-y-5">
-      <div className="space-y-1">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold tracking-tight text-foreground">
-            General
-          </h1>
+      <p className="text-muted-foreground text-sm mb-4">
+        Startup, updates, and notifications
+      </p>
+
+      <div className="flex items-center justify-end">
           <UpdateBanner compact />
-        </div>
-        <p className="text-muted-foreground text-sm">
-          Startup, updates, and notifications
-        </p>
       </div>
 
       <div className="space-y-2">
@@ -241,6 +237,28 @@ export default function GeneralSettings() {
                   }}
                 />
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* restart notifications */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <Label className="text-sm font-medium">
+                  restart notifications
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  show a notification when audio or screen capture stalls
+                </p>
+              </div>
+              <Switch
+                checked={settings?.showRestartNotifications !== false}
+                onCheckedChange={(checked) =>
+                  handleSettingsChange({ showRestartNotifications: checked })
+                }
+              />
             </div>
           </CardContent>
         </Card>

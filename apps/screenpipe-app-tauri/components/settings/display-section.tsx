@@ -43,14 +43,9 @@ export function DisplaySection() {
 
   return (
     <div className="space-y-5">
-      <div className="space-y-1">
-        <h1 className="text-xl font-bold tracking-tight text-foreground">
-          Display
-        </h1>
-        <p className="text-muted-foreground text-sm">
-          Theme, windows, and overlay appearance
-        </p>
-      </div>
+      <p className="text-muted-foreground text-sm mb-4">
+        Theme, windows, and overlay appearance
+      </p>
 
       <div className="space-y-2">
         <Card className="border-border bg-card">

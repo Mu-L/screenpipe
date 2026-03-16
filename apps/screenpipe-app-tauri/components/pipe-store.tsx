@@ -4,7 +4,8 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { apiCache } from "@/lib/cache";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -67,6 +68,7 @@ interface StorePipe {
   description: string;
   icon: string;
   author: string;
+  author_id?: string;
   author_verified: boolean;
   category: string;
   version: string;
@@ -75,7 +77,7 @@ interface StorePipe {
   review_count: number;
   install_count: number;
   featured: boolean;
-  permissions: PipePermissions;
+  permissions?: PipePermissions;
   source?: string;
   readme_md?: string;
 }
@@ -131,7 +133,8 @@ const PERMISSION_LABELS: { key: string; label: string; icon: React.ReactNode }[]
   { key: "connections", label: "Connections", icon: <Plug className="h-3.5 w-3.5" /> },
 ];
 
-function getPermissionStatus(perms: PipePermissions, key: string): "allowed" | "denied" | "unset" {
+function getPermissionStatus(perms: PipePermissions | undefined, key: string): "allowed" | "denied" | "unset" {
+  if (!perms) return "unset";
   const allowKey = `allow_${key}` as keyof PipePermissions;
   const denyKey = `deny_${key}` as keyof PipePermissions;
   if (perms[denyKey] === true) return "denied";
@@ -140,7 +143,8 @@ function getPermissionStatus(perms: PipePermissions, key: string): "allowed" | "
   return "unset";
 }
 
-function isUnrestricted(perms: PipePermissions): boolean {
+function isUnrestricted(perms?: PipePermissions): boolean {
+  if (!perms) return true; // no permissions declared = unrestricted
   return (
     !perms.deny_ocr &&
     !perms.deny_audio &&
@@ -209,14 +213,41 @@ function formatCount(n: number): string {
   return String(n);
 }
 
-function relativeDate(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
+function relativeDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return "unknown";
+  const time = new Date(dateStr).getTime();
+  if (isNaN(time)) return "unknown";
+  const diff = Date.now() - time;
   const days = Math.floor(diff / 86400000);
   if (days < 1) return "today";
   if (days === 1) return "yesterday";
   if (days < 30) return `${days}d ago`;
   if (days < 365) return `${Math.floor(days / 30)}mo ago`;
   return `${Math.floor(days / 365)}y ago`;
+}
+
+/**
+ * Normalize pipe data from the API response.
+ * The backend returns `avg_rating` (not `rating`), `author_id` (not `author`),
+ * `source_md` (not `source`), and values can be null.
+ */
+function normalizePipe(raw: any): any {
+  if (!raw) return raw;
+  return {
+    ...raw,
+    title: raw.title || raw.slug || "untitled pipe",
+    author: raw.author || raw.author_name || "",
+    author_id: raw.author_id || null,
+    rating: raw.rating ?? raw.avg_rating ?? 0,
+    review_count: raw.review_count ?? 0,
+    install_count: raw.install_count ?? 0,
+    version: raw.version ?? "0",
+    updated_at: raw.updated_at || raw.created_at || null,
+    category: raw.category || "other",
+    source: raw.source || raw.source_md || null,
+    description: raw.description || "",
+    icon: raw.icon || "🔧",
+  };
 }
 
 // --- Main Unified Component ---
@@ -290,19 +321,30 @@ function DiscoverView() {
   // Source section
   const [sourceExpanded, setSourceExpanded] = useState(false);
 
+  // Unpublish state
+  const [unpublishing, setUnpublishing] = useState(false);
+
   // Publish dialog
   const [publishOpen, setPublishOpen] = useState(false);
 
   // Installed pipe names (for "Installed" badge)
   const [installedNames, setInstalledNames] = useState<Set<string>>(new Set());
 
-  // Fetch installed pipes
+  // Fetch installed pipes (cached 30s, invalidated on install)
   useEffect(() => {
+    const cacheKey = "pipes/installed";
+    const cached = apiCache.get<Set<string>>(cacheKey);
+    if (cached) {
+      setInstalledNames(cached);
+      return;
+    }
     fetch("http://localhost:3030/pipes")
       .then((r) => r.json())
       .then((data) => {
         const list = Array.isArray(data) ? data : data.data || data.pipes || [];
-        setInstalledNames(new Set(list.map((p: any) => p.config?.name || p.name)));
+        const names = new Set<string>(list.map((p: any) => p.config?.name || p.name));
+        apiCache.set(cacheKey, names, 30_000);
+        setInstalledNames(names);
       })
       .catch(() => {});
   }, [showDetail]);
@@ -314,22 +356,36 @@ function DiscoverView() {
     return () => clearTimeout(debounceRef.current);
   }, [searchQuery]);
 
-  // Fetch pipes
+  // Fetch pipes with stale-while-revalidate caching
   const fetchPipes = useCallback(async () => {
-    setLoading(true);
+    const params = new URLSearchParams();
+    if (debouncedQuery) params.set("q", debouncedQuery);
+    if (category !== "All") params.set("category", category.toLowerCase());
+    if (sort) params.set("sort", sort);
+    const cacheKey = `pipes/store?${params}`;
+
+    // Show cached data immediately if available
+    const cached = apiCache.getStale<any[]>(cacheKey);
+    if (cached) {
+      setPipes(cached);
+      // If cache is still fresh, skip network request
+      if (apiCache.isFresh(cacheKey)) return;
+    } else {
+      setLoading(true);
+    }
+
+    // Fetch fresh data in background
     try {
-      const params = new URLSearchParams();
-      if (debouncedQuery) params.set("q", debouncedQuery);
-      if (category !== "All") params.set("category", category.toLowerCase());
-      if (sort) params.set("sort", sort);
       const res = await fetch(`http://localhost:3030/pipes/store?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const list = data.data || data.pipes || (Array.isArray(data) ? data : []);
-      setPipes(list);
+      const normalized = list.map(normalizePipe);
+      apiCache.set(cacheKey, normalized, 5 * 60_000); // 5 min TTL
+      setPipes(normalized);
     } catch (err) {
       console.error("failed to fetch pipe store:", err);
-      setPipes([]);
+      if (!cached) setPipes([]);
     } finally {
       setLoading(false);
     }
@@ -349,10 +405,13 @@ function DiscoverView() {
     setReviewRating(0);
     setReviewComment("");
     try {
-      const res = await fetch(`http://localhost:3030/pipes/store/${slug}`);
+      const res = await fetch(`http://localhost:3030/pipes/store/${slug}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setSelectedPipe(data);
+      const pipeData = data.data || data;
+      setSelectedPipe(normalizePipe(pipeData));
     } catch (err) {
       console.error("failed to fetch pipe detail:", err);
       toast({
@@ -383,7 +442,8 @@ function DiscoverView() {
         title: `"${data.name || slug}" installed`,
         description: "switch to my pipes to configure and run it",
       });
-      // Refresh installed names
+      // Invalidate cache and update installed names
+      apiCache.invalidate("pipes/installed");
       setInstalledNames((prev) => new Set([...prev, data.name || slug]));
     } catch (err: any) {
       toast({
@@ -429,6 +489,34 @@ function DiscoverView() {
     }
   };
 
+  // Unpublish pipe
+  const handleUnpublish = async (slug: string) => {
+    setUnpublishing(true);
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`http://localhost:3030/pipes/store/${slug}`, {
+        method: "DELETE",
+        headers,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+      posthog.capture("pipe_unpublished_from_store", { slug });
+      toast({ title: `"${slug}" unpublished from store` });
+      setShowDetail(false);
+      setSelectedPipe(null);
+      fetchPipes();
+    } catch (err: any) {
+      toast({
+        title: "failed to unpublish pipe",
+        description: err.message,
+        variant: "destructive",
+      });
+    } finally {
+      setUnpublishing(false);
+    }
+  };
+
   // If showing detail view, render full-width detail panel
   if (showDetail) {
     return (
@@ -467,6 +555,9 @@ function DiscoverView() {
             sourceExpanded={sourceExpanded}
             onToggleSource={() => setSourceExpanded(!sourceExpanded)}
             token={token}
+            currentUserId={settings.user?.id}
+            onUnpublish={handleUnpublish}
+            unpublishing={unpublishing}
           />
         ) : null}
       </div>
@@ -685,12 +776,12 @@ function FeaturedCard({
           </Badge>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
-              <StarRating rating={pipe.rating} />
-              <span>{pipe.rating.toFixed(1)}</span>
+              <StarRating rating={pipe.rating ?? 0} />
+              <span>{(pipe.rating ?? 0).toFixed(1)}</span>
             </span>
             <span className="flex items-center gap-1">
               <Download className="h-3 w-3" />
-              {formatCount(pipe.install_count)}
+              {formatCount(pipe.install_count ?? 0)}
             </span>
           </div>
         </div>
@@ -788,12 +879,12 @@ function PipeCard({
 
       <div className="flex items-center gap-3 mt-3 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">
-          <StarRating rating={pipe.rating} />
-          <span>{pipe.rating.toFixed(1)}</span>
+          <StarRating rating={pipe.rating ?? 0} />
+          <span>{(pipe.rating ?? 0).toFixed(1)}</span>
         </span>
         <span className="flex items-center gap-1">
           <Download className="h-3 w-3" />
-          {formatCount(pipe.install_count)}
+          {formatCount(pipe.install_count ?? 0)}
         </span>
       </div>
     </div>
@@ -820,6 +911,9 @@ function PipeDetailPanel({
   sourceExpanded,
   onToggleSource,
   token,
+  currentUserId,
+  onUnpublish,
+  unpublishing,
 }: {
   pipe: PipeDetail;
   installing: string | null;
@@ -838,9 +932,13 @@ function PipeDetailPanel({
   sourceExpanded: boolean;
   onToggleSource: () => void;
   token?: string | null;
+  currentUserId?: string | null;
+  onUnpublish?: (slug: string) => void;
+  unpublishing?: boolean;
 }) {
   const unrestricted = isUnrestricted(pipe.permissions);
   const needsReview = unrestricted && !pipe.author_verified;
+  const isOwner = !!(currentUserId && pipe.author_id && currentUserId === pipe.author_id);
 
   const readmeContent = pipe.readme_md
     ? pipe.readme_md
@@ -852,38 +950,48 @@ function PipeDetailPanel({
     <div className="space-y-8">
       {/* Hero header */}
       <div className="flex items-start gap-4">
-        <div className="text-4xl bg-muted rounded-2xl h-16 w-16 flex items-center justify-center flex-shrink-0">
+        <div className="text-4xl bg-muted rounded-none h-16 w-16 flex items-center justify-center flex-shrink-0">
           {pipe.icon || "🔧"}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-xl font-semibold tracking-tight">{pipe.title}</h2>
+              <h2 className="text-xl font-semibold tracking-tight">{pipe.title || pipe.slug || "untitled pipe"}</h2>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                  <span>{pipe.author}</span>
-                  {pipe.author_verified && (
-                    <BadgeCheck className="h-3.5 w-3.5 text-blue-500" />
-                  )}
-                </div>
-                <span className="text-xs text-muted-foreground/50">·</span>
-                <span className="text-xs text-muted-foreground">v{pipe.version}</span>
-                <span className="text-xs text-muted-foreground/50">·</span>
-                <Badge variant="secondary" className="text-[10px] px-2 py-0.5 font-normal rounded-full">
-                  {pipe.category}
-                </Badge>
+                {pipe.author ? (
+                  <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                    <span>{pipe.author}</span>
+                    {pipe.author_verified && (
+                      <BadgeCheck className="h-3.5 w-3.5 text-blue-500" />
+                    )}
+                  </div>
+                ) : null}
+                {pipe.version ? (
+                  <>
+                    {pipe.author && <span className="text-xs text-muted-foreground/50">·</span>}
+                    <span className="text-xs text-muted-foreground">v{pipe.version}</span>
+                  </>
+                ) : null}
+                {pipe.category ? (
+                  <>
+                    <span className="text-xs text-muted-foreground/50">·</span>
+                    <Badge variant="secondary" className="text-[10px] px-2 py-0.5 font-normal rounded-none">
+                      {pipe.category}
+                    </Badge>
+                  </>
+                ) : null}
               </div>
               <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1.5">
-                  <StarRating rating={pipe.rating} size="md" />
+                  <StarRating rating={pipe.rating ?? 0} size="md" />
                   <span>
-                    {pipe.rating.toFixed(1)} ({pipe.review_count}{" "}
-                    {pipe.review_count === 1 ? "review" : "reviews"})
+                    {(pipe.rating ?? 0).toFixed(1)} ({pipe.review_count ?? 0}{" "}
+                    {(pipe.review_count ?? 0) === 1 ? "review" : "reviews"})
                   </span>
                 </span>
                 <span className="flex items-center gap-1">
                   <Download className="h-3.5 w-3.5" />
-                  {formatCount(pipe.install_count)} installs
+                  {formatCount(pipe.install_count ?? 0)} installs
                 </span>
                 <span className="text-xs">
                   updated {relativeDate(pipe.updated_at)}
@@ -891,32 +999,52 @@ function PipeDetailPanel({
               </div>
             </div>
 
-            <Button
-              size="sm"
-              variant={isInstalled ? "outline" : "default"}
-              className={cn(
-                "h-9 px-5 text-sm font-semibold rounded-full flex-shrink-0",
-                isInstalled && "pointer-events-none"
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {isOwner && onUnpublish && (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="h-9 px-4 text-sm font-semibold rounded-none"
+                  disabled={unpublishing}
+                  onClick={() => onUnpublish(pipe.slug)}
+                >
+                  {unpublishing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                      unpublishing...
+                    </>
+                  ) : (
+                    "unpublish"
+                  )}
+                </Button>
               )}
-              disabled={
-                installing === pipe.slug || isInstalled || (needsReview && !sourceReviewed)
-              }
-              onClick={() => onInstall(pipe.slug)}
-            >
-              {installing === pipe.slug ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
-                  installing...
-                </>
-              ) : isInstalled ? (
-                "Installed"
-              ) : (
-                <>
-                  <Download className="h-4 w-4 mr-1.5" />
-                  Get
-                </>
-              )}
-            </Button>
+              <Button
+                size="sm"
+                variant={isInstalled ? "outline" : "default"}
+                className={cn(
+                  "h-9 px-5 text-sm font-semibold rounded-none flex-shrink-0",
+                  isInstalled && "pointer-events-none"
+                )}
+                disabled={
+                  installing === pipe.slug || isInstalled || (needsReview && !sourceReviewed)
+                }
+                onClick={() => onInstall(pipe.slug)}
+              >
+                {installing === pipe.slug ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                    installing...
+                  </>
+                ) : isInstalled ? (
+                  "Installed"
+                ) : (
+                  <>
+                    <Download className="h-4 w-4 mr-1.5" />
+                    Get
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -926,7 +1054,7 @@ function PipeDetailPanel({
         <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-widest">
           README
         </h4>
-        <div className="border border-border rounded-xl p-6">
+        <div className="border border-border rounded-none p-6">
           {readmeContent ? (
             <MemoizedReactMarkdown
               remarkPlugins={[remarkGfm]}
@@ -971,7 +1099,7 @@ function PipeDetailPanel({
         <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-widest">
           Permissions
         </h4>
-        <div className="border border-border rounded-xl p-5 space-y-3">
+        <div className="border border-border rounded-none p-5 space-y-3">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
             {PERMISSION_LABELS.map((perm) => {
               const status = getPermissionStatus(pipe.permissions, perm.key);
@@ -995,24 +1123,24 @@ function PipeDetailPanel({
               );
             })}
           </div>
-          {pipe.permissions.time_range && (
+          {pipe.permissions?.time_range && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground pt-2 border-t border-border">
               <Clock className="h-3.5 w-3.5" />
-              time range: {pipe.permissions.time_range}
+              time range: {pipe.permissions?.time_range}
             </div>
           )}
-          {pipe.permissions.day_restrictions &&
+          {pipe.permissions?.day_restrictions &&
             pipe.permissions.day_restrictions.length > 0 && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Clock className="h-3.5 w-3.5" />
-                days: {pipe.permissions.day_restrictions.join(", ")}
+                days: {pipe.permissions?.day_restrictions?.join(", ")}
               </div>
             )}
         </div>
 
         {/* Unrestricted warning */}
         {unrestricted && (
-          <div className="border border-orange-500/50 bg-orange-500/5 rounded-xl p-4 space-y-2">
+          <div className="border border-orange-500/50 bg-orange-500/5 rounded-none p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm font-medium text-orange-600 dark:text-orange-400">
               <AlertTriangle className="h-4 w-4" />
               unrestricted data access
@@ -1040,14 +1168,14 @@ function PipeDetailPanel({
       {/* Reviews */}
       <div className="space-y-3">
         <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-widest">
-          Reviews ({pipe.review_count})
+          Reviews ({pipe.review_count ?? 0})
         </h4>
         <div className="space-y-3">
           {pipe.reviews && pipe.reviews.length > 0 ? (
             pipe.reviews.map((review) => (
               <div
                 key={review.id}
-                className="border border-border rounded-xl p-4 space-y-1.5"
+                className="border border-border rounded-none p-4 space-y-1.5"
               >
                 <div className="flex items-center gap-2">
                   <StarRating rating={review.rating} />
@@ -1077,7 +1205,7 @@ function PipeDetailPanel({
                 {reviewExpanded ? "cancel review" : "write a review"}
               </button>
               {reviewExpanded && (
-                <div className="mt-3 space-y-3 border border-border rounded-xl p-4">
+                <div className="mt-3 space-y-3 border border-border rounded-none p-4">
                   <div>
                     <Label className="text-xs">rating</Label>
                     <div className="mt-1">
@@ -1137,7 +1265,7 @@ function PipeDetailPanel({
           Source (pipe.md)
         </button>
         {sourceExpanded && pipe.source && (
-          <div className="border border-border rounded-xl overflow-hidden">
+          <div className="border border-border rounded-none overflow-hidden">
             <pre className="p-4 text-xs leading-relaxed whitespace-pre-wrap font-mono max-h-80 overflow-y-auto bg-muted/50">
               {pipe.source}
             </pre>
@@ -1149,6 +1277,32 @@ function PipeDetailPanel({
 }
 
 // --- Publish Dialog ---
+
+// Redact secrets from pipe content before publishing
+function redactSecrets(text: string): { redacted: string; count: number } {
+  let count = 0;
+  const patterns: [RegExp, string][] = [
+    [/sk-ant-[a-zA-Z0-9_-]{20,}/g, "sk-ant-***REDACTED***"],
+    [/sk-[a-zA-Z0-9]{20,}/g, "sk-***REDACTED***"],
+    [/ghp_[a-zA-Z0-9]{36,}/g, "ghp_***REDACTED***"],
+    [/gho_[a-zA-Z0-9]{36,}/g, "gho_***REDACTED***"],
+    [/xoxb-[a-zA-Z0-9-]+/g, "xoxb-***REDACTED***"],
+    [/xoxp-[a-zA-Z0-9-]+/g, "xoxp-***REDACTED***"],
+    [/AIza[a-zA-Z0-9_-]{30,}/g, "AIza***REDACTED***"],
+    [/AKIA[A-Z0-9]{16,}/g, "AKIA***REDACTED***"],
+    [/Bearer\s+ey[a-zA-Z0-9._-]+/g, "Bearer ***REDACTED***"],
+    [/((?:API_KEY|SECRET|TOKEN|PASSWORD|CREDENTIALS)\s*[=:]\s*["']?)([a-zA-Z0-9_-]{8,})(["']?)/gi,
+      "$1***REDACTED***$3"],
+  ];
+  let result = text;
+  for (const [pattern, replacement] of patterns) {
+    const before = result;
+    result = result.replace(pattern, replacement);
+    if (result !== before) count++;
+    pattern.lastIndex = 0;
+  }
+  return { redacted: result, count };
+}
 
 function PublishDialog({
   open,
@@ -1170,6 +1324,7 @@ function PublishDialog({
   const [icon, setIcon] = useState("🔧");
   const [publishCategory, setPublishCategory] = useState("Other");
   const [publishing, setPublishing] = useState(false);
+  const [redactEnabled, setRedactEnabled] = useState(true);
 
   useEffect(() => {
     if (!open) return;
@@ -1190,8 +1345,17 @@ function PublishDialog({
     try {
       // Get pipe content from local pipes list
       const pipe = localPipes.find((p: any) => p.name === selectedPipe);
-      const sourceMd = pipe?.raw_content;
+      let sourceMd = pipe?.raw_content as string | undefined;
       if (!sourceMd) throw new Error("could not read pipe content");
+
+      // Redact secrets if enabled
+      if (redactEnabled) {
+        const { redacted, count } = redactSecrets(sourceMd);
+        if (count > 0) {
+          sourceMd = redacted;
+          toast({ title: `redacted ${count} secret(s) from pipe before publishing` });
+        }
+      }
 
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
@@ -1317,6 +1481,18 @@ function PublishDialog({
                 </Select>
               </div>
             </div>
+
+            {/* Redact secrets checkbox */}
+            <div className="flex items-center gap-2 pt-1">
+              <Checkbox
+                id="redact-secrets"
+                checked={redactEnabled}
+                onCheckedChange={(v) => setRedactEnabled(v === true)}
+              />
+              <Label htmlFor="redact-secrets" className="text-xs text-muted-foreground">
+                redact API keys & secrets before publishing
+              </Label>
+            </div>
           </div>
         )}
 
@@ -1358,7 +1534,7 @@ export function PermissionsReview({
   permissions,
   authorVerified,
 }: {
-  permissions: PipePermissions;
+  permissions?: PipePermissions;
   authorVerified: boolean;
 }) {
   const unrestricted = isUnrestricted(permissions);

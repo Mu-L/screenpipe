@@ -138,6 +138,12 @@ struct HealthCheckResponse {
     /// Audio pipeline metrics for stall detection
     #[serde(default)]
     audio_pipeline: Option<AudioPipelineInfo>,
+    /// Vision capture alive but DB writes stopped (pool exhaustion)
+    #[serde(default)]
+    vision_db_write_stalled: bool,
+    /// Audio devices active but DB writes stopped (pool exhaustion)
+    #[serde(default)]
+    audio_db_write_stalled: bool,
 }
 
 /// Decide recording status based on health check result and time since startup.
@@ -309,6 +315,13 @@ pub async fn start_health_check(app: tauri::AppHandle) -> Result<()> {
     let mut consecutive_vision_stall: u32 = 0;
     let mut last_audio_notification: Option<Instant> = None;
     let mut last_vision_notification: Option<Instant> = None;
+    let mut wake_reset_done = false;
+    // Grace period after ANY restart (manual, notification-triggered, or
+    // settings-triggered): suppress stall detection for 120s, giving the
+    // new pipeline time to load models and produce its first DB write.
+    let mut last_restart_triggered: Option<Instant> = None;
+    // Track last known spawn epoch to detect user-initiated restarts
+    let mut last_known_spawn_epoch: u64 = 0;
 
     tokio::spawn(async move {
         loop {
@@ -433,10 +446,37 @@ pub async fn start_health_check(app: tauri::AppHandle) -> Result<()> {
                 });
             }
 
+            // ── Detect any restart (manual, notification, settings-triggered) ──
+            // When spawn_screenpipe completes, it updates last_spawn_epoch.
+            // If we see a new epoch, set the grace period so the new pipeline
+            // has time to warm up before we start stall-checking.
+            if let Some(rec_state) = app.try_state::<crate::recording::RecordingState>() {
+                let current_epoch = rec_state.last_spawn_epoch.load(std::sync::atomic::Ordering::SeqCst);
+                if current_epoch > 0 && current_epoch != last_known_spawn_epoch {
+                    if last_known_spawn_epoch > 0 {
+                        // A restart happened — activate grace period
+                        info!("detected restart (spawn epoch {} → {}), activating {}s stall detection grace",
+                            last_known_spawn_epoch, current_epoch, NOTIFICATION_COOLDOWN.as_secs());
+                        last_restart_triggered = Some(Instant::now());
+                        consecutive_audio_stall = 0;
+                        consecutive_vision_stall = 0;
+                    }
+                    last_known_spawn_epoch = current_epoch;
+                }
+            }
+
             // ── Capture stall detection ──
-            // Only check when the server is responding (status == Recording)
-            // and we're past the startup grace period.
-            if status == RecordingStatus::Recording && start_time.elapsed() > Duration::from_secs(120) {
+            // Only check when the server is responding (status == Recording),
+            // we're past the startup grace period, and not in a post-restart
+            // grace period. Grace matches NOTIFICATION_COOLDOWN so a restart
+            // never triggers a second notification before the cooldown expires.
+            let in_restart_grace = last_restart_triggered
+                .map(|t| t.elapsed() < NOTIFICATION_COOLDOWN)
+                .unwrap_or(false);
+            if status == RecordingStatus::Recording
+                && start_time.elapsed() > Duration::from_secs(120)
+                && !in_restart_grace
+            {
                 if let Ok(ref health) = health_result {
                     let audio_bad = matches!(
                         health.audio_status.as_deref(),
@@ -457,8 +497,14 @@ pub async fn start_health_check(app: tauri::AppHandle) -> Result<()> {
                         })
                         .unwrap_or(false);
 
-                    // Audio stall tracking
-                    if audio_bad && !audio_excused {
+                    // Audio stall tracking:
+                    // - audio_bad (capture stale/not_started): always counts
+                    // - audio_db_write_stalled: only counts as a stall signal.
+                    //   Change #1 (engine side) ensures this flag only fires after
+                    //   at least one successful DB write, so silent environments
+                    //   (last_db_write_ts == 0) won't trigger false positives.
+                    let audio_db_stalled = health.audio_db_write_stalled;
+                    if (audio_bad || audio_db_stalled) && !audio_excused {
                         consecutive_audio_stall = consecutive_audio_stall.saturating_add(1);
                     } else {
                         if consecutive_audio_stall >= CAPTURE_STALL_THRESHOLD {
@@ -467,8 +513,10 @@ pub async fn start_health_check(app: tauri::AppHandle) -> Result<()> {
                         consecutive_audio_stall = 0;
                     }
 
-                    // Vision stall tracking
-                    if vision_bad {
+                    // Vision stall tracking — also trigger on DB write stalls
+                    // (capture loop alive but pool exhaustion blocking writes)
+                    let vision_db_stalled = health.vision_db_write_stalled;
+                    if vision_bad || vision_db_stalled {
                         consecutive_vision_stall = consecutive_vision_stall.saturating_add(1);
                     } else {
                         if consecutive_vision_stall >= CAPTURE_STALL_THRESHOLD {
@@ -477,10 +525,31 @@ pub async fn start_health_check(app: tauri::AppHandle) -> Result<()> {
                         consecutive_vision_stall = 0;
                     }
 
-                    // Show notification if threshold hit and cooldown expired
+                    // After wake from sleep, reset stall counters and notification
+                    // cooldowns once so degraded recording is re-detected from scratch.
+                    // Only reset once per wake event to avoid suppressing the counter
+                    // for the entire 30s wake window.
+                    let woke = screenpipe_engine::sleep_monitor::recently_woke_from_sleep();
+                    if woke && !wake_reset_done {
+                        wake_reset_done = true;
+                        consecutive_audio_stall = 0;
+                        consecutive_vision_stall = 0;
+                        last_audio_notification = None;
+                        last_vision_notification = None;
+                    }
+                    if !woke {
+                        wake_reset_done = false;
+                    }
+
+                    // Show notification if threshold hit, cooldown expired, and not disabled
+                    let notifications_enabled = crate::store::SettingsStore::get(&app)
+                        .ok()
+                        .flatten()
+                        .map(|s| s.show_restart_notifications)
+                        .unwrap_or(true);
                     let now_instant = Instant::now();
 
-                    if consecutive_audio_stall == CAPTURE_STALL_THRESHOLD {
+                    if consecutive_audio_stall == CAPTURE_STALL_THRESHOLD && notifications_enabled {
                         let cooldown_ok = last_audio_notification
                             .map(|t| now_instant.duration_since(t) >= NOTIFICATION_COOLDOWN)
                             .unwrap_or(true);
@@ -490,20 +559,23 @@ pub async fn start_health_check(app: tauri::AppHandle) -> Result<()> {
                                 CAPTURE_STALL_THRESHOLD
                             );
                             last_audio_notification = Some(now_instant);
+                            last_restart_triggered = Some(now_instant);
                             let _ = show_capture_stall_notification(&app, "audio").await;
                         }
                     }
 
-                    if consecutive_vision_stall == CAPTURE_STALL_THRESHOLD {
+                    if consecutive_vision_stall == CAPTURE_STALL_THRESHOLD && notifications_enabled {
                         let cooldown_ok = last_vision_notification
                             .map(|t| now_instant.duration_since(t) >= NOTIFICATION_COOLDOWN)
                             .unwrap_or(true);
                         if cooldown_ok {
+                            let reason = if vision_db_stalled { "db write stall" } else { "capture stall" };
                             warn!(
-                                "vision capture stalled for {}s, showing restart notification",
-                                CAPTURE_STALL_THRESHOLD
+                                "vision {} for {}s, showing restart notification",
+                                reason, CAPTURE_STALL_THRESHOLD
                             );
                             last_vision_notification = Some(now_instant);
+                            last_restart_triggered = Some(now_instant);
                             let _ = show_capture_stall_notification(&app, "screen").await;
                         }
                     }
@@ -520,7 +592,16 @@ pub async fn start_health_check(app: tauri::AppHandle) -> Result<()> {
 }
 
 /// Show a notification telling the user that capture has stalled, with a restart button.
+/// Skips showing if the main overlay panel is visible — the notification panel
+/// steals focus and causes a deadlock with the overlay's focus-loss handler.
 async fn show_capture_stall_notification(app: &tauri::AppHandle, system: &str) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        if crate::window::MAIN_PANEL_SHOWN.load(std::sync::atomic::Ordering::SeqCst) {
+            tracing::debug!("skipping capture stall notification — overlay is visible");
+            return Ok(());
+        }
+    }
     let payload = serde_json::json!({
         "id": format!("capture_stall_{}", system),
         "type": "capture_stall",

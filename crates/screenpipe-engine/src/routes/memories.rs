@@ -25,6 +25,7 @@ pub(crate) struct CreateMemoryRequest {
     pub tags: Vec<String>,
     #[serde(default = "default_importance")]
     pub importance: f64,
+    pub frame_id: Option<i64>,
 }
 
 fn default_source() -> String {
@@ -43,6 +44,7 @@ pub(crate) struct MemoryResponse {
     pub source_context: Option<Value>,
     pub tags: Vec<String>,
     pub importance: f64,
+    pub frame_id: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -94,6 +96,7 @@ fn memory_to_response(m: screenpipe_db::MemoryRecord) -> MemoryResponse {
             .and_then(|t| serde_json::from_str(t).ok())
             .unwrap_or_default(),
         importance: m.importance,
+        frame_id: m.frame_id,
         created_at: m.created_at,
         updated_at: m.updated_at,
     }
@@ -115,6 +118,7 @@ pub(crate) async fn create_memory_handler(
             source_context_json.as_deref(),
             Some(&tags_json),
             payload.importance,
+            payload.frame_id,
         )
         .await
         .map_err(|e| {
@@ -139,9 +143,8 @@ pub(crate) async fn list_memories_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ListMemoriesQuery>,
 ) -> Result<JsonResponse<MemoryListResponse>, (StatusCode, JsonResponse<Value>)> {
-    let memories = state
-        .db
-        .list_memories(
+    let (memories_result, total_result) = tokio::join!(
+        state.db.list_memories(
             query.q.as_deref(),
             query.source.as_deref(),
             query.tags.as_deref(),
@@ -150,18 +153,8 @@ pub(crate) async fn list_memories_handler(
             query.end_time.as_deref(),
             query.limit,
             query.offset,
-        )
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                JsonResponse(json!({"error": e.to_string()})),
-            )
-        })?;
-
-    let total = state
-        .db
-        .count_memories(
+        ),
+        state.db.count_memories(
             query.q.as_deref(),
             query.source.as_deref(),
             query.tags.as_deref(),
@@ -169,13 +162,21 @@ pub(crate) async fn list_memories_handler(
             query.start_time.as_deref(),
             query.end_time.as_deref(),
         )
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                JsonResponse(json!({"error": e.to_string()})),
-            )
-        })?;
+    );
+
+    let memories = memories_result.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            JsonResponse(json!({"error": e.to_string()})),
+        )
+    })?;
+
+    let total = total_result.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            JsonResponse(json!({"error": e.to_string()})),
+        )
+    })?;
 
     Ok(JsonResponse(MemoryListResponse {
         data: memories.into_iter().map(memory_to_response).collect(),
