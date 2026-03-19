@@ -70,6 +70,36 @@ const NotificationHandler: React.FC = () => {
   }, []);
 
 
+  // Save notification history + PostHog tracking when native panel is shown (macOS)
+  useEffect(() => {
+    const unlisten = listen<string>("native-notification-shown", async (event) => {
+      try {
+        const data = JSON.parse(event.payload);
+        // PostHog analytics (same as webview panel)
+        const posthog = (await import("posthog-js")).default;
+        posthog.capture("notification_shown", { type: data.type, id: data.id });
+
+        // Save to notification history (same as webview panel, max 100 entries)
+        const localforage = (await import("localforage")).default;
+        const history = await localforage.getItem<any[]>("notification-history") || [];
+        const entry = {
+          id: data.id,
+          type: data.type,
+          title: data.title,
+          body: data.body,
+          pipe_name: data.pipe_name,
+          timestamp: new Date().toISOString(),
+          read: false,
+        };
+        const updated = [entry, ...history].slice(0, 100);
+        await localforage.setItem("notification-history", updated);
+      } catch (e) {
+        console.error("failed to save native notification history:", e);
+      }
+    });
+    return () => { unlisten.then((u) => u()); };
+  }, []);
+
   // Handle actions from native SwiftUI notification panel (macOS)
   useEffect(() => {
     const unlisten = listen<string>("native-notification-action", async (event) => {
@@ -77,9 +107,13 @@ const NotificationHandler: React.FC = () => {
         const action = JSON.parse(event.payload);
         console.log("native notification action:", action);
 
+        // PostHog tracking for dismiss/action (mirrors webview panel)
+        const posthog = (await import("posthog-js")).default;
         if (action.type === "dismiss" || action.type === "auto_dismiss") {
+          posthog.capture("notification_dismissed", { auto: action.type === "auto_dismiss" });
           return;
         }
+        posthog.capture("notification_action", { action: action.action, actionType: action.type });
 
         if (action.type === "manage") {
           const { emit } = await import("@tauri-apps/api/event");
@@ -146,11 +180,10 @@ const NotificationHandler: React.FC = () => {
         }
 
         // Legacy string actions
+        const { invoke } = await import("@tauri-apps/api/core");
         if (action.action === "open_timeline") {
-          const { invoke } = await import("@tauri-apps/api/core");
           await invoke("show_window", { window: "Main" });
         } else if (action.action === "open_chat") {
-          const { invoke } = await import("@tauri-apps/api/core");
           await invoke("show_window", { window: "Chat" });
         } else if (action.action === "open_pipe_suggestions") {
           await showChatWithPrefill({
@@ -159,6 +192,22 @@ const NotificationHandler: React.FC = () => {
             autoSend: true,
             source: "pipe-suggestion-notification",
           });
+        } else if (action.action === "restart_recording") {
+          try {
+            try { await invoke("stop_screenpipe"); } catch {}
+            await new Promise((r) => setTimeout(r, 2000));
+            await invoke("spawn_screenpipe");
+            // Poll health endpoint to confirm restart
+            for (let i = 0; i < 15; i++) {
+              await new Promise((r) => setTimeout(r, 1000));
+              try {
+                const res = await fetch("http://localhost:3030/health");
+                if (res.ok) break;
+              } catch {}
+            }
+          } catch (e) {
+            console.error("restart_recording failed:", e);
+          }
         }
       } catch (e) {
         console.error("failed to handle native notification action:", e);

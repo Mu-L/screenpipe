@@ -1069,6 +1069,9 @@ pub async fn show_notification_panel(
         if native_notification::is_available() {
             info!("Using native SwiftUI notification panel");
             if native_notification::show(&payload) {
+                // Emit event so the main window can save notification history + PostHog analytics
+                // (the webview panel page does this in JS, but we bypass it with native)
+                let _ = app_handle.emit("native-notification-shown", &payload);
                 return Ok(());
             }
             warn!("Native notification panel failed, falling back to webview");

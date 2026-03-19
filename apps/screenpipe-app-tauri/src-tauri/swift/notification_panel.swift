@@ -68,7 +68,97 @@ public func notifSetActionCallback(_ cb: @escaping ActionCallback) {
     gActionCallback = cb
 }
 
+// MARK: - Brand constants
+// screenpipe brand: black & white geometric minimalism
+// 0px border radius, no shadows, 1px borders, IBM Plex Mono
+
+private enum Brand {
+    // Try to load IBM Plex Mono, fall back to system monospaced
+    static func monoFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+        // Attempt IBM Plex Mono first (bundled with the app)
+        if let font = NSFont(name: ibmPlexMonoName(for: weight), size: size) {
+            return font
+        }
+        return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+    }
+
+    private static func ibmPlexMonoName(for weight: NSFont.Weight) -> String {
+        switch weight {
+        case .medium: return "IBMPlexMono-Medium"
+        case .semibold, .bold: return "IBMPlexMono-SemiBold"
+        case .light: return "IBMPlexMono-Light"
+        default: return "IBMPlexMono"
+        }
+    }
+
+    static func swiftUIMonoFont(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        // Try IBM Plex Mono, fall back to system monospaced
+        return Font.custom("IBM Plex Mono", size: size).weight(weight)
+    }
+
+    static let animDuration: Double = 0.15
+}
+
 // MARK: - SwiftUI Views
+
+/// Button with brand-compliant hover: color inversion, sharp corners, 1px border
+@available(macOS 13.0, *)
+struct BrandButton: View {
+    let label: String
+    let isPrimary: Bool
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(label.uppercased())
+                .font(Brand.swiftUIMonoFont(size: 10, weight: .medium))
+                .tracking(0.5)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(isHovered ? Color(nsColor: .windowBackgroundColor) : .primary.opacity(0.75))
+        .background(
+            Rectangle()
+                .fill(isHovered ? Color.primary : (isPrimary ? Color.primary.opacity(0.06) : Color.clear))
+        )
+        .overlay(
+            Rectangle()
+                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(.linear(duration: Brand.animDuration)) {
+                isHovered = hovering
+            }
+        }
+    }
+}
+
+/// Subtle text link with brand hover (color inversion on text)
+@available(macOS 13.0, *)
+struct BrandTextButton: View {
+    let label: String
+    let fontSize: CGFloat
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(Brand.swiftUIMonoFont(size: fontSize, weight: .regular))
+                .foregroundColor(isHovered ? .primary.opacity(0.8) : .primary.opacity(0.3))
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(.linear(duration: Brand.animDuration)) {
+                isHovered = hovering
+            }
+        }
+    }
+}
 
 @available(macOS 13.0, *)
 struct NotificationContentView: View {
@@ -78,40 +168,40 @@ struct NotificationContentView: View {
     let onDismiss: () -> Void
     let onAction: (NotificationAction) -> Void
 
+    @State private var closeHovered = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack {
                 Text("screenpipe")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(Brand.swiftUIMonoFont(size: 10, weight: .medium))
                     .foregroundColor(.primary.opacity(0.4))
-                    .textCase(.lowercase)
                 Spacer()
                 Button(action: onDismiss) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(.primary.opacity(0.35))
+                    Text("✕")
+                        .font(Brand.swiftUIMonoFont(size: 12))
+                        .foregroundColor(closeHovered ? .primary.opacity(0.9) : .primary.opacity(0.35))
                 }
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
+                .onHover { h in
+                    withAnimation(.linear(duration: Brand.animDuration)) { closeHovered = h }
+                }
             }
             .padding(.horizontal, 14)
             .padding(.top, 12)
 
             // Title
             Text(payload.title)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .font(Brand.swiftUIMonoFont(size: 12, weight: .medium))
                 .foregroundColor(.primary.opacity(0.9))
                 .lineLimit(2)
                 .padding(.horizontal, 14)
                 .padding(.top, 8)
 
-            // Body
-            Text(payload.body)
-                .font(.system(size: 11, weight: .regular, design: .monospaced))
-                .foregroundColor(.primary.opacity(0.5))
-                .lineSpacing(2)
-                .lineLimit(4)
+            // Body — render basic markdown inline
+            MarkdownText(payload.body)
                 .padding(.horizontal, 14)
                 .padding(.top, 4)
 
@@ -121,59 +211,34 @@ struct NotificationContentView: View {
             if !payload.actions.isEmpty {
                 HStack(spacing: 8) {
                     ForEach(Array(payload.actions.enumerated()), id: \.offset) { _, action in
-                        Button(action.label) {
-                            onAction(action)
-                        }
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(action.primary == true ? Color.primary.opacity(0.08) : Color.clear)
+                        BrandButton(
+                            label: action.label,
+                            isPrimary: action.primary == true,
+                            action: { onAction(action) }
                         )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 4)
-                                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
-                        )
-                        .foregroundColor(.primary.opacity(0.75))
-                        .buttonStyle(.plain)
-                        .contentShape(Rectangle())
                     }
                     Spacer()
-                    Button("dismiss →") {
+                    BrandTextButton(label: "DISMISS →", fontSize: 10) {
                         onDismiss()
                     }
-                    .font(.system(size: 10, weight: .regular, design: .monospaced))
-                    .foregroundColor(.primary.opacity(0.3))
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 6)
             }
 
-            // Footer
+            // Footer: manage + mute
             HStack(spacing: 6) {
-                Button("⚙ manage") {
-                    // Send manage action to Rust
+                BrandTextButton(label: "⚙ manage", fontSize: 9) {
                     sendActionJson("{\"type\":\"manage\"}")
                 }
-                .font(.system(size: 9, weight: .regular, design: .monospaced))
-                .foregroundColor(.primary.opacity(0.3))
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
 
                 if let pipeName = payload.pipe_name {
                     Text("·")
-                        .font(.system(size: 9))
+                        .font(Brand.swiftUIMonoFont(size: 9))
                         .foregroundColor(.primary.opacity(0.15))
-                    Button("mute \(pipeName)") {
+                    BrandTextButton(label: "mute \(pipeName)", fontSize: 9) {
                         sendActionJson("{\"type\":\"mute\",\"pipe_name\":\"\(pipeName)\"}")
                     }
-                    .font(.system(size: 9, weight: .regular, design: .monospaced))
-                    .foregroundColor(.primary.opacity(0.3))
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
                 }
 
                 Spacer()
@@ -186,7 +251,7 @@ struct NotificationContentView: View {
                     .frame(height: 1)
             }
 
-            // Progress bar
+            // Progress bar — 2px, sharp, no radius
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Rectangle()
@@ -198,18 +263,14 @@ struct NotificationContentView: View {
             }
             .frame(height: 2)
         }
+        // Brand: sharp corners, 1px border, no shadow, no radius
         .background(
             VisualEffectView()
-                .clipShape(RoundedRectangle(cornerRadius: 10))
         )
-        .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            Rectangle()
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.12), radius: 16, x: 0, y: 8)
-        .scaleEffect(isHovered ? 1.005 : 1.0)
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
     }
 
     private func sendActionJson(_ json: String) {
@@ -219,14 +280,80 @@ struct NotificationContentView: View {
     }
 }
 
-// NSVisualEffectView wrapper for frosted glass background
+// MARK: - Basic Markdown text renderer
+// Supports **bold**, `code`, and plain text — no external dependencies
+
+@available(macOS 13.0, *)
+struct MarkdownText: View {
+    let raw: String
+
+    init(_ text: String) {
+        self.raw = text
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(raw.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
+                if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Spacer().frame(height: 4)
+                } else {
+                    renderLine(line)
+                }
+            }
+        }
+    }
+
+    private func renderLine(_ line: String) -> some View {
+        var result = Text("")
+        var remaining = line[line.startIndex...]
+
+        while !remaining.isEmpty {
+            if remaining.hasPrefix("**") {
+                // Bold
+                let after = remaining[remaining.index(remaining.startIndex, offsetBy: 2)...]
+                if let end = after.range(of: "**") {
+                    let bold = after[after.startIndex..<end.lowerBound]
+                    result = result + Text(String(bold))
+                        .font(Brand.swiftUIMonoFont(size: 11, weight: .medium))
+                        .foregroundColor(.primary.opacity(0.9))
+                    remaining = after[end.upperBound...]
+                    continue
+                }
+            }
+            if remaining.hasPrefix("`") {
+                // Code
+                let after = remaining[remaining.index(after: remaining.startIndex)...]
+                if let end = after.firstIndex(of: "`") {
+                    let code = after[after.startIndex..<end]
+                    result = result + Text(String(code))
+                        .font(Brand.swiftUIMonoFont(size: 10))
+                        .foregroundColor(.primary.opacity(0.6))
+                    remaining = after[after.index(after: end)...]
+                    continue
+                }
+            }
+            // Plain character
+            result = result + Text(String(remaining[remaining.startIndex]))
+                .font(Brand.swiftUIMonoFont(size: 11))
+                .foregroundColor(.primary.opacity(0.5))
+            remaining = remaining[remaining.index(after: remaining.startIndex)...]
+        }
+
+        return result
+            .lineSpacing(2)
+            .lineLimit(4)
+    }
+}
+
+// MARK: - NSVisualEffectView wrapper
+// Uses .windowBackground material for pure black/white per brand
+
 struct VisualEffectView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let v = NSVisualEffectView()
-        v.material = .hudWindow
+        v.material = .windowBackground
         v.blendingMode = .behindWindow
         v.state = .active
-        v.isEmphasized = true
         return v
     }
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
@@ -270,11 +397,12 @@ class NotificationPanelController: NSObject {
     private var currentPayload: NotificationPayload?
     private var timer: Timer?
     private var progress: Double = 1.0
-    private var startTime: Date = Date()
     private var autoDismissMs: Double = 20000
     private var elapsedBeforePause: Double = 0
     private var resumedAt: Date = Date()
     private var isHovered: Bool = false
+    /// Incremented per notification so rapid-fire notifications each restart the timer
+    private var epoch: Int = 0
 
     func show(payload: NotificationPayload) {
         DispatchQueue.main.async { [self] in
@@ -284,6 +412,7 @@ class NotificationPanelController: NSObject {
             self.elapsedBeforePause = 0
             self.resumedAt = Date()
             self.isHovered = false
+            self.epoch += 1
 
             if panel == nil {
                 createPanel()
@@ -292,8 +421,20 @@ class NotificationPanelController: NSObject {
             updateContent()
             positionPanel()
 
-            // Show without stealing focus
-            panel?.orderFront(nil)
+            // Slide-in animation: start offscreen right, animate to final position
+            if let panel = panel {
+                let finalOrigin = panel.frame.origin
+                panel.setFrameOrigin(NSPoint(x: finalOrigin.x + 20, y: finalOrigin.y))
+                panel.alphaValue = 0
+                panel.orderFront(nil)
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = Brand.animDuration
+                    ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    panel.animator().setFrameOrigin(finalOrigin)
+                    panel.animator().alphaValue = 1
+                }
+            }
+
             startTimer()
         }
     }
@@ -331,12 +472,15 @@ class NotificationPanelController: NSObject {
         p.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle, .fullScreenAuxiliary]
         p.isOpaque = false
         p.backgroundColor = .clear
-        p.hasShadow = false
+        p.hasShadow = false  // Brand: no shadows
         p.hidesOnDeactivate = false
         p.isMovableByWindowBackground = false
         p.acceptsMouseMovedEvents = true
         p.isReleasedWhenClosed = false
         p.animationBehavior = .utilityWindow
+
+        // Visible in screen capture
+        p.sharingType = .readOnly
 
         // Use a custom tracking view as the content view
         let tracking = HoverTrackingView(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
@@ -397,8 +541,11 @@ class NotificationPanelController: NSObject {
 
     private func startTimer() {
         timer?.invalidate()
+        let currentEpoch = self.epoch
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             guard let self = self else { return }
+            // Stop if a newer notification replaced this one
+            guard self.epoch == currentEpoch else { return }
             if self.isHovered { return }
             let elapsed = self.elapsedBeforePause + Date().timeIntervalSince(self.resumedAt) * 1000
             let remaining = max(0, 1.0 - elapsed / self.autoDismissMs)
