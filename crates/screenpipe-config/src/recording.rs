@@ -244,6 +244,7 @@ impl RecordingSettings {
 }
 
 impl Default for RecordingSettings {
+    #[allow(deprecated)]
     fn default() -> Self {
         Self {
             disable_audio: false,

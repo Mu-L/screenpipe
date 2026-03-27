@@ -6742,7 +6742,6 @@ dependencies = [
  "libpulse-simple-binding",
  "libsamplerate-sys",
  "log",
- "mlx-rs",
  "mp3lame-encoder",
  "ndarray",
  "oasgen",
