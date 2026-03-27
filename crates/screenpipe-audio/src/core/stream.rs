@@ -15,7 +15,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot};
 use tokio::task::LocalSet;
 #[cfg(not(all(target_os = "linux", feature = "pulseaudio")))]
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 #[cfg(not(all(target_os = "linux", feature = "pulseaudio")))]
 use crate::utils::audio::audio_to_mono;
@@ -230,9 +230,9 @@ fn create_error_callback(
                 "audio device {} disconnected. stopping recording.",
                 device_name
             );
-            stream_control_tx
-                .send(StreamControl::Stop(oneshot::channel().0))
-                .unwrap();
+            if let Err(e) = stream_control_tx.send(StreamControl::Stop(oneshot::channel().0)) {
+                debug!("failed to send stop signal on device disconnect: {}", e);
+            }
             is_disconnected.store(true, Ordering::Relaxed);
         } else {
             error!("an error occurred on the audio stream: {}", err);
