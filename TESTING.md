@@ -427,11 +427,14 @@ commits: `b3628788`, `738178da`
 
 ### 15. Windows-specific
 
-commits: `eea0c865`, `fe9060db`, `c99c3967`, `aeaa446b`, `5a219688`, `caae1ebc`, `67caf1d1`, `ff4af7b5`
+commits: `eea0c865`, `fe9060db`, `c99c3967`, `aeaa446b`, `5a219688`, `caae1ebc`, `67caf1d1`, `ff4af7b5`, `ce62c0fbb`, `aab48f07a`
 
 - [ ] **COM thread conflict** — audio and vision threads don't conflict on COM initialization (`eea0c865`).
 - [ ] **high-DPI display (150%, 200%)** — OCR captures at correct resolution.
 - [ ] **multiple monitors** — all detected and recorded.
+- [ ] **Windows adaptive a11y throttling** — on Windows, verify that accessibility event capture doesn't cause high CPU or UI lag during heavy typing/navigation. (`ce62c0fbb`)
+- [ ] **Windows subprocess console windows** — verify that no command prompt windows pop up when Screenpipe spawns auxiliary processes. (`aab48f07a`)
+- [ ] **Windows audio output loopback** — verify that system audio output is captured correctly without stutter or feedback loops. (`ce62c0fbb`)
 - [ ] **Windows Defender** — app not blocked by default security.
 - [ ] **Windows default mode** — On Windows, the app should default to window mode on first launch.
 - [ ] **Windows taskbar icon** — The app should display a taskbar icon on Windows.
@@ -700,8 +703,10 @@ commits: `274a968af`, `dc575e48e`, `81aabbf18`, `d5e071854`, `db08f8c06`, `f4225
 
 ### 21. Privacy & Incognito Detection
 
-commits: `ad431b513`, `d9722bccc`, `4df21e83d`
+commits: `ad431b513`, `d9722bccc`, `4df21e83d`, `d0f736a62`, `0396e8079`
 
+- [ ] **DAZN DRM detection** — open DAZN app/website and verify screen recording is blocked for that window. (`d0f736a62`)
+- [ ] **SCK frame leak prevention** — verify that DRM-protected windows do not leak frames during browser tab switching or space transitions. (`0396e8079`)
 - [ ] **Incognito window detection** — Verify that private browsing/incognito windows are correctly detected for major browsers (Chrome, Safari, Firefox, etc.). (`ad431b513`)
 - [ ] **Ignore incognito toggle** — Verify that the "Ignore Incognito Windows" toggle in settings correctly prevents recording of private windows. (`d9722bccc`)
 - [ ] **Incognito detection UI feedback** — Verify that the UI correctly reflects when an incognito window is being ignored.
@@ -807,8 +812,9 @@ commits: `cf2dcd5f8`, `ad1d00d8f`, `6f623b30a`, `aaf031169`
 
 ### 26. Onboarding & Fleet UX
 
-commits: `f6c21a022`, `31e67ae1c`, `8d0a5348d`, `b1c30e99b`
+commits: `f6c21a022`, `31e67ae1c`, `8d0a5348d`, `b1c30e99b`, `79204bf64`
 
+- [ ] **Reset onboarding flow** — click the reset onboarding button in settings and verify the entire flow restarts correctly. (`79204bf64`)
 - [ ] **Redesigned Onboarding** — Complete the redesigned onboarding. Verify live feed appears and opinionated pipe setup works. (`f6c21a022`)
 - [ ] **Pipes & Fleet merged UI** — Open Pipes tab. Verify fleet devices appear in the dropdown. Verify local machine is filtered/distinct. (`31e67ae1c`, `8d0a5348d`)
 - [ ] **Scheduled vs Manual pipes** — In My Pipes, verify sub-tabs for scheduled and manual pipes. (`b1c30e99b`)
@@ -826,3 +832,22 @@ commits: `c8769545b`, `4f522325b`, `54000c295`
 commits: `c6a73b17e`, `945b687ec`
 
 - [ ] **Deploy to offline devices** — Use chat prompt to deploy screenpipe to an offline device. Verify it handles the "Screen Sharing" permission dialog by opening it on the target machine. (`c6a73b17e`, `945b687ec`)
+
+### 29. Testing Infrastructure & E2E
+
+commits: `dd3997e3f`, `f0d23d8d0`
+
+- [ ] **E2E runner execution** — run `bun run test:local` in `packages/e2e` and verify suites pass. (`dd3997e3f`)
+- [ ] **Tart macOS VM automation** — verify Tart can successfully spawn a macOS VM and run screenpipe tests within it. (`f0d23d8d0`)
+
+### 30. LAN Discovery
+
+commits: `2eebb3bba`
+
+- [ ] **mDNS Discovery** — verify that Screenpipe instances on the same LAN appear automatically in the device dropdown. (`2eebb3bba`)
+
+### 31. Pi Sessions & Chat UX
+
+commits: `9866ab44d`, `3b6342028`
+
+- [ ] **Pi multi-session history** — verify that pipe history and chat context are correctly scoped and persistent across different Pi sessions. (`9866ab44d`, `3b6342028`)
