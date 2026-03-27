@@ -122,6 +122,15 @@ pub async fn start_embedded_server(
         info!("Using Chinese HuggingFace mirror");
     }
 
+    // DirectML GPU acceleration (Windows only)
+    // Set env var so audiopipe's parakeet runtime knows to attempt DirectML
+    if config.gpu_acceleration.as_deref() == Some("directml") {
+        std::env::set_var("SCREENPIPE_DIRECTML", "1");
+        info!("DirectML GPU acceleration enabled for audio transcription");
+    } else {
+        std::env::remove_var("SCREENPIPE_DIRECTML");
+    }
+
     // Screenpipe cloud proxy for deepgram — only when user has no personal key
     if config.audio_transcription_engine == AudioTranscriptionEngine::Deepgram {
         let has_personal_key = config

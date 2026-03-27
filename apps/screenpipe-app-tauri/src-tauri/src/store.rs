@@ -773,6 +773,33 @@ pub fn init_store(app: &AppHandle) -> Result<SettingsStore, String> {
         }
     }
 
+    // GPU detection (Windows only). Detect once on first launch or upgrade from
+    // a version that didn't have GPU detection. Sets gpu_acceleration to "directml"
+    // or "cpu" and stores the GPU name for diagnostics.
+    #[cfg(target_os = "windows")]
+    if store.recording.gpu_acceleration.is_none() {
+        let gpu_result = screenpipe_config::detect_gpu();
+        tracing::info!(
+            "GPU detection: use_directml={}, reason={}",
+            gpu_result.use_directml,
+            gpu_result.reason
+        );
+        if gpu_result.use_directml {
+            store.recording.gpu_acceleration = Some("directml".to_string());
+            if let Some(ref gpu) = gpu_result.recommended_gpu {
+                tracing::info!(
+                    "GPU acceleration enabled: {} ({} MB VRAM)",
+                    gpu.name,
+                    gpu.dedicated_vram_mb
+                );
+                store.recording.gpu_name = Some(gpu.name.clone());
+            }
+        } else {
+            store.recording.gpu_acceleration = Some("cpu".to_string());
+        }
+        should_save = true;
+    }
+
     // One-time migration: move default Haiku users to Qwen3.5 Flash
     if needs_haiku_migration {
         for preset in &mut store.ai_presets {

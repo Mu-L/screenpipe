@@ -6761,6 +6761,7 @@ dependencies = [
  "sysinfo",
  "tempfile",
  "toml 0.8.23",
+ "windows 0.58.0",
 ]
 
 [[package]]

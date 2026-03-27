@@ -210,6 +210,23 @@ pub struct RecordingSettings {
         skip_serializing_if = "Option::is_none"
     )]
     pub device_tier: Option<String>,
+
+    /// GPU acceleration backend: "directml" or "cpu".
+    /// Set once on first launch via DXGI detection; `None` for existing installs (treated as CPU).
+    #[serde(
+        rename = "gpuAcceleration",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub gpu_acceleration: Option<String>,
+
+    /// Name of the GPU selected for acceleration (for diagnostics / UI display).
+    #[serde(
+        rename = "gpuName",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub gpu_name: Option<String>,
 }
 
 impl RecordingSettings {
@@ -276,6 +293,8 @@ impl Default for RecordingSettings {
             enable_accessibility: true,
             enable_workflow_events: false,
             device_tier: None,
+            gpu_acceleration: None,
+            gpu_name: None,
         }
     }
 }

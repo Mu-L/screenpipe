@@ -101,6 +101,10 @@ pub struct RecordingConfig {
 
     /// Audio channel capacities derived from device tier.
     pub channel_config: ChannelConfig,
+
+    /// GPU acceleration backend: "directml" or "cpu" (Windows only).
+    /// Set by DXGI GPU detection at first launch.
+    pub gpu_acceleration: Option<String>,
 }
 
 impl RecordingConfig {
@@ -186,6 +190,7 @@ impl RecordingConfig {
                 .and_then(screenpipe_config::DeviceTier::from_str_loose)
                 .map(ChannelConfig::for_tier)
                 .unwrap_or_default(),
+            gpu_acceleration: settings.gpu_acceleration.clone(),
         }
     }
 

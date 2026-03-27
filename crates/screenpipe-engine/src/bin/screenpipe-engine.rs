@@ -470,6 +470,13 @@ async fn main() -> anyhow::Result<()> {
         .clone()
         .into_recording_config(local_data_dir.clone());
 
+    // DirectML GPU acceleration (Windows only)
+    if config.gpu_acceleration.as_deref() == Some("directml") {
+        env::set_var("SCREENPIPE_DIRECTML", "1");
+    } else {
+        env::remove_var("SCREENPIPE_DIRECTML");
+    }
+
     // Replace the current conditional check with:
     let ffmpeg_path = find_ffmpeg_path();
     if ffmpeg_path.is_none() {

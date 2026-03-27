@@ -428,6 +428,21 @@ impl RecordArgs {
             }
         }
 
+        // GPU detection for CLI users (Windows only)
+        #[cfg(target_os = "windows")]
+        if settings.gpu_acceleration.is_none() {
+            let gpu_result = screenpipe_config::detect_gpu();
+            if gpu_result.use_directml {
+                settings.gpu_acceleration = Some("directml".to_string());
+                if let Some(ref gpu) = gpu_result.recommended_gpu {
+                    eprintln!("detected GPU: {} — enabling DirectML", gpu.name);
+                    settings.gpu_name = Some(gpu.name.clone());
+                }
+            } else {
+                settings.gpu_acceleration = Some("cpu".to_string());
+            }
+        }
+
         crate::recording_config::RecordingConfig::from_settings(&settings, data_dir, None)
     }
 }

@@ -21,9 +21,11 @@
 //! engine consumes.
 
 mod defaults;
+pub mod gpu;
 mod persistence;
 mod recording;
 
 pub use defaults::*;
+pub use gpu::{detect_gpu, GpuDetectionResult, GpuInfo, GpuType};
 pub use persistence::*;
 pub use recording::*;

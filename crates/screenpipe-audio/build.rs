@@ -85,7 +85,15 @@ fn install_onnxruntime() {
     use std::time::Duration;
     use std::{path::Path, process::Command};
 
-    // Use CPU-only onnxruntime — GPU (DirectML) causes issues on Intel integrated GPUs.
+    // When the `directml` feature is enabled, download the GPU (DirectML) ONNX Runtime
+    // from GitHub releases. It has the same layout as the CPU package (lib/onnxruntime.lib,
+    // lib/onnxruntime.dll) plus lib/DirectML.dll. The DirectML EP is selected at runtime
+    // (env SCREENPIPE_DIRECTML=1) only on machines with discrete GPUs, so Intel iGPU-only
+    // machines still run CPU inference even with this binary.
+    //
+    // Without `directml`, download the CPU-only variant (smaller, no DirectML dependency).
+    let use_directml = env::var("CARGO_FEATURE_DIRECTML").is_ok();
+
     // Windows ARM64 (aarch64-pc-windows-msvc) uses onnxruntime-win-arm64-*.
     let arch_var = env::var("CARGO_CFG_TARGET_ARCH");
     let arch = arch_var.as_deref().unwrap_or("x86_64");
@@ -93,6 +101,12 @@ fn install_onnxruntime() {
         (
             "onnxruntime-win-arm64-1.19.2",
             "onnxruntime-win-arm64-1.19.2.zip",
+        )
+    } else if use_directml {
+        // GPU package includes DirectML.dll alongside onnxruntime.dll
+        (
+            "onnxruntime-win-x64-gpu-1.19.2",
+            "onnxruntime-win-x64-gpu-1.19.2.zip",
         )
     } else {
         (
