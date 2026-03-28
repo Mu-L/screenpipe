@@ -853,6 +853,7 @@ mod tests {
     #[test]
     fn from_config_no_permissions() {
         let config = PipeConfig {
+            trigger: None,
             name: "test".to_string(),
             schedule: "manual".to_string(),
             enabled: true,
@@ -877,6 +878,7 @@ mod tests {
     #[test]
     fn from_config_reader_preset() {
         let config = PipeConfig {
+            trigger: None,
             name: "test".to_string(),
             schedule: "manual".to_string(),
             enabled: true,
@@ -901,6 +903,7 @@ mod tests {
     #[test]
     fn from_config_with_unified_rules() {
         let config = PipeConfig {
+            trigger: None,
             name: "test".to_string(),
             schedule: "manual".to_string(),
             enabled: true,
@@ -962,6 +965,7 @@ mod tests {
         // Set offline mode and verify it propagates to PipePermissions
         crate::offline::set_offline_mode(true);
         let config = PipeConfig {
+            trigger: None,
             name: "offline-test".to_string(),
             schedule: "manual".to_string(),
             enabled: true,
