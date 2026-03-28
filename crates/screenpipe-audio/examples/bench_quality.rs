@@ -59,7 +59,7 @@ fn char_accuracy(reference: &str, hypothesis: &str) -> f64 {
     let r = reference.to_lowercase();
     let h = hypothesis.to_lowercase();
     let dist = strsim_levenshtein(&r, &h);
-    if r.len() > 0 {
+    if !r.is_empty() {
         1.0 - (dist as f64 / r.len() as f64)
     } else {
         1.0

@@ -248,15 +248,13 @@ impl PipePermissions {
         // Default allowlist
         if self.use_default_allowlist {
             for pattern in DEFAULT_ALLOWED_ENDPOINTS {
-                if let Some(rule) = parse_bare_api(pattern) {
-                    if let PermissionRule::Api {
-                        method: rm,
-                        path: rp,
-                    } = &rule
-                    {
-                        if (rm == "*" || rm == &m) && glob_match(rp, path) {
-                            return true;
-                        }
+                if let Some(PermissionRule::Api {
+                    method: rm,
+                    path: rp,
+                }) = parse_bare_api(pattern)
+                {
+                    if (rm == "*" || rm == m) && glob_match(&rp, path) {
+                        return true;
                     }
                 }
             }
@@ -863,6 +861,7 @@ mod tests {
             permissions: PipePermissionsConfig::default(),
             connections: vec![],
             timeout: None,
+            trigger: None,
             source_slug: None,
             installed_version: None,
             source_hash: None,
@@ -887,6 +886,7 @@ mod tests {
             permissions: PipePermissionsConfig::Preset("reader".to_string()),
             connections: vec![],
             timeout: None,
+            trigger: None,
             source_slug: None,
             installed_version: None,
             source_hash: None,
@@ -923,6 +923,7 @@ mod tests {
             },
             connections: vec![],
             timeout: None,
+            trigger: None,
             source_slug: None,
             installed_version: None,
             source_hash: None,
@@ -972,6 +973,7 @@ mod tests {
             permissions: PipePermissionsConfig::default(),
             connections: vec![],
             timeout: None,
+            trigger: None,
             source_slug: None,
             installed_version: None,
             source_hash: None,

@@ -16,11 +16,7 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 
 fn get_hostname() -> String {
-    let cmd = if cfg!(windows) {
-        "hostname"
-    } else {
-        "hostname"
-    };
+    let cmd = "hostname";
     std::process::Command::new(cmd)
         .output()
         .ok()

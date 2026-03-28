@@ -243,6 +243,7 @@ impl RecordingSettings {
     }
 }
 
+#[allow(deprecated)]
 impl Default for RecordingSettings {
     fn default() -> Self {
         Self {

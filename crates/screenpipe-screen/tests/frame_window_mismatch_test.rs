@@ -7,8 +7,6 @@
 //!
 //! Run with: cargo test -p screenpipe-screen --test frame_window_mismatch_test -- --nocapture
 
-use std::collections::HashMap;
-
 /// Simulates the video file - one frame per capture cycle
 struct MockVideoFile {
     frames: Vec<String>, // Each frame is the full-screen content at capture time

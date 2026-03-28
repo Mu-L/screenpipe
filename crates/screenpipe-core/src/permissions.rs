@@ -7,6 +7,8 @@
 //! These are pure check functions with no UI dependencies — usable from both CLI and GUI.
 //! Request/prompt functions stay in the Tauri app layer.
 
+#![allow(unexpected_cfgs)]
+
 /// Permission status for a single OS permission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PermissionStatus {
@@ -180,7 +182,7 @@ pub fn check_microphone() -> PermissionStatus {
 
         // AVMediaTypeAudio = @"soun"
         let media_type: *mut Object =
-            msg_send![class!(NSString), stringWithUTF8String: b"soun\0".as_ptr()];
+            msg_send![class!(NSString), stringWithUTF8String: c"soun".as_ptr()];
         let status: i64 = msg_send![cls, authorizationStatusForMediaType: media_type];
 
         let _: () = msg_send![pool, drain];

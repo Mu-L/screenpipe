@@ -61,6 +61,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn save_and_load_round_trip() {
         let mut settings = RecordingSettings::default();
         settings.port = 4040;

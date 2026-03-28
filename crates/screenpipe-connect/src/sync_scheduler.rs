@@ -20,6 +20,12 @@ pub struct SyncScheduler {
     last_error: Arc<Mutex<Option<String>>>,
 }
 
+impl Default for SyncScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SyncScheduler {
     pub fn new() -> Self {
         Self {

@@ -11,15 +11,10 @@
 //!   cargo run --example bench_quality2 --features parakeet --release
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::Mutex;
 
-use screenpipe_audio::core::engine::AudioTranscriptionEngine;
 use screenpipe_audio::vad::silero::SileroVad;
 use screenpipe_audio::vad::VadEngine;
-use screenpipe_audio::TranscriptionEngine;
-use screenpipe_core::Language;
 
 // ─── WAV reading ────────────────────────────────────────────────────────────
 
@@ -230,7 +225,7 @@ fn merge_and_cut_segments(
     let mut cur_end = segments[0].1;
 
     for &(s, e) in &segments[1..] {
-        let gap = if s > cur_end { s - cur_end } else { 0 };
+        let gap = s.saturating_sub(cur_end);
         let gap_secs = gap as f64 / sr as f64;
         let combined_len = e - cur_start;
 
