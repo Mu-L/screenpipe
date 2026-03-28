@@ -1,3 +1,5 @@
+#![allow(clippy::single_element_loop)]
+
 /// Speaker clustering experiments
 ///
 /// Replays all embeddings from `~/.screenpipe/db.sqlite` through different

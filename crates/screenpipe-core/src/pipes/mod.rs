@@ -3771,7 +3771,7 @@ mod tests {
         let gen_ref = pm.scheduler_generation.clone();
 
         pm.start_scheduler().await.unwrap();
-        let gen_after_start = gen_ref.load(std::sync::atomic::Ordering::SeqCst);
+        let _gen_after_start = gen_ref.load(std::sync::atomic::Ordering::SeqCst);
 
         // Simulate stale scheduler: increment generation externally
         gen_ref.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -3911,6 +3911,7 @@ mod tests {
             config: HashMap::new(),
             connections: vec![],
             timeout: None,
+            trigger: None,
             source_slug: None,
             installed_version: None,
             source_hash: None,
@@ -3951,7 +3952,7 @@ mod tests {
             reparsed.config.is_empty(),
             "extras HashMap should be empty after roundtrip"
         );
-        assert_eq!(reparsed.enabled, true);
+        assert!(reparsed.enabled);
         assert_eq!(reparsed.schedule, "every 30m");
         assert_eq!(reparsed_body, "Hello prompt");
     }
@@ -4049,6 +4050,7 @@ mod tests {
             config: HashMap::new(),
             connections: vec![],
             timeout: None,
+            trigger: None,
             source_slug: None,
             installed_version: None,
             source_hash: None,
@@ -4066,7 +4068,7 @@ mod tests {
 
     #[test]
     fn test_render_prompt_default_port() {
-        let config = PipeConfig {
+        let _config = PipeConfig {
             name: "test".to_string(),
             schedule: "manual".to_string(),
             enabled: true,
@@ -4078,6 +4080,7 @@ mod tests {
             config: HashMap::new(),
             connections: vec![],
             timeout: None,
+            trigger: None,
             source_slug: None,
             installed_version: None,
             source_hash: None,
@@ -4088,7 +4091,7 @@ mod tests {
 
     #[test]
     fn test_render_prompt_with_system_prompt() {
-        let config = PipeConfig {
+        let _config = PipeConfig {
             name: "test".to_string(),
             schedule: "every 1h".to_string(),
             enabled: true,
@@ -4100,6 +4103,7 @@ mod tests {
             config: HashMap::new(),
             connections: vec![],
             timeout: None,
+            trigger: None,
             source_slug: None,
             installed_version: None,
             source_hash: None,
@@ -4112,7 +4116,7 @@ mod tests {
 
     #[test]
     fn test_render_prompt_without_system_prompt() {
-        let config = PipeConfig {
+        let _config = PipeConfig {
             name: "test".to_string(),
             schedule: "every 1h".to_string(),
             enabled: true,
@@ -4124,6 +4128,7 @@ mod tests {
             config: HashMap::new(),
             connections: vec![],
             timeout: None,
+            trigger: None,
             source_slug: None,
             installed_version: None,
             source_hash: None,
@@ -4147,6 +4152,7 @@ mod tests {
             provider: None,
             started_at: Some("2026-02-13T00:00:00Z".to_string()),
             finished_at: Some("2026-02-13T00:01:00Z".to_string()),
+            session_path: None,
             stdout: "output".to_string(),
             stderr: String::new(),
             exit_code: Some(0),
@@ -4193,6 +4199,7 @@ mod tests {
                 config: HashMap::new(),
                 connections: vec![],
                 timeout: None,
+                trigger: None,
                 source_slug: None,
                 installed_version: None,
                 source_hash: None,
