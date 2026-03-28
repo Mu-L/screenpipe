@@ -220,7 +220,7 @@ impl PresetFallbackRegistry {
             let breaker = state
                 .presets
                 .entry(preset_id.clone())
-                .or_insert_with(PresetBreaker::default);
+                .or_default();
 
             // Check if cooldown expired → HALF_OPEN
             if breaker.check_recovery() {
@@ -249,7 +249,7 @@ impl PresetFallbackRegistry {
         let breaker = state
             .presets
             .entry(preset_id.to_string())
-            .or_insert_with(PresetBreaker::default);
+            .or_default();
         breaker.record_success();
         self.persist(&state);
     }
@@ -279,7 +279,7 @@ impl PresetFallbackRegistry {
         let breaker = state
             .presets
             .entry(preset_id.to_string())
-            .or_insert_with(PresetBreaker::default);
+            .or_default();
         breaker.trip(reason);
         self.persist(&state);
 
@@ -322,7 +322,7 @@ impl PresetFallbackRegistry {
         let breaker = state
             .presets
             .entry(preset_id.to_string())
-            .or_insert_with(PresetBreaker::default);
+            .or_default();
         breaker.trip(reason);
         self.persist(&state);
 
