@@ -3771,7 +3771,7 @@ mod tests {
         let gen_ref = pm.scheduler_generation.clone();
 
         pm.start_scheduler().await.unwrap();
-        let gen_after_start = gen_ref.load(std::sync::atomic::Ordering::SeqCst);
+        let _gen_after_start = gen_ref.load(std::sync::atomic::Ordering::SeqCst);
 
         // Simulate stale scheduler: increment generation externally
         gen_ref.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -3914,6 +3914,7 @@ mod tests {
             source_slug: None,
             installed_version: None,
             source_hash: None,
+            trigger: None,
         };
         let body = "Do something useful";
         let serialized = serialize_pipe(&config, body).unwrap();
@@ -3951,7 +3952,7 @@ mod tests {
             reparsed.config.is_empty(),
             "extras HashMap should be empty after roundtrip"
         );
-        assert_eq!(reparsed.enabled, true);
+        assert!(reparsed.enabled);
         assert_eq!(reparsed.schedule, "every 30m");
         assert_eq!(reparsed_body, "Hello prompt");
     }
@@ -4052,6 +4053,7 @@ mod tests {
             source_slug: None,
             installed_version: None,
             source_hash: None,
+            trigger: None,
         };
         let prompt = render_prompt_with_port(&config, "body text", 3031, None, None);
         // User prompt contains time range and the "Execute" instruction
@@ -4066,7 +4068,7 @@ mod tests {
 
     #[test]
     fn test_render_prompt_default_port() {
-        let config = PipeConfig {
+        let _config = PipeConfig {
             name: "test".to_string(),
             schedule: "manual".to_string(),
             enabled: true,
@@ -4081,6 +4083,7 @@ mod tests {
             source_slug: None,
             installed_version: None,
             source_hash: None,
+            trigger: None,
         };
         let sys = render_pipe_system_prompt("hello", 3030, None);
         assert!(sys.contains("http://localhost:3030"));
@@ -4088,7 +4091,7 @@ mod tests {
 
     #[test]
     fn test_render_prompt_with_system_prompt() {
-        let config = PipeConfig {
+        let _config = PipeConfig {
             name: "test".to_string(),
             schedule: "every 1h".to_string(),
             enabled: true,
@@ -4103,6 +4106,7 @@ mod tests {
             source_slug: None,
             installed_version: None,
             source_hash: None,
+            trigger: None,
         };
         let sys = render_pipe_system_prompt("body text", 3030, Some("You are a helpful assistant"));
         assert!(sys.starts_with("You are a helpful assistant\n\n"));
@@ -4112,7 +4116,7 @@ mod tests {
 
     #[test]
     fn test_render_prompt_without_system_prompt() {
-        let config = PipeConfig {
+        let _config = PipeConfig {
             name: "test".to_string(),
             schedule: "every 1h".to_string(),
             enabled: true,
@@ -4127,6 +4131,7 @@ mod tests {
             source_slug: None,
             installed_version: None,
             source_hash: None,
+            trigger: None,
         };
         let sys = render_pipe_system_prompt("body text", 3030, None);
         assert!(!sys.contains("System prompt:"));
@@ -4153,6 +4158,7 @@ mod tests {
             error_type: None,
             error_message: None,
             duration_ms: Some(60000),
+            session_path: None,
         };
         let json = serde_json::to_string(&exec).unwrap();
         let parsed: PipeExecution = serde_json::from_str(&json).unwrap();
@@ -4196,6 +4202,7 @@ mod tests {
                 source_slug: None,
                 installed_version: None,
                 source_hash: None,
+            trigger: None,
             },
             last_run: None,
             last_success: None,
