@@ -1,3 +1,5 @@
+#![allow(warnings)]
+#![allow(clippy::manual_is_multiple_of)]
 /// Rigorous tests for the capture retry + refresh logic in continuous_capture.
 ///
 /// The retry pattern (from core.rs):

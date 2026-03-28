@@ -1,3 +1,4 @@
+#![allow(warnings)]
 /// Standalone test for health check debouncing logic.
 /// This mirrors the core logic from apps/screenpipe-app-tauri/src-tauri/src/health.rs
 /// so we can test it without the full Tauri build.

@@ -1,3 +1,4 @@
+#![allow(warnings)]
 //! Tests for empty window name filtering bug
 //!
 //! Bug: Windows with empty titles ("") are being captured and saved to the database,

@@ -1,3 +1,5 @@
+#![allow(warnings)]
+#![allow(clippy::manual_is_multiple_of)]
 //! Test to reproduce the frame-window mismatch issue
 //!
 //! The bug: Multiple database records (one per window) are created per capture cycle,

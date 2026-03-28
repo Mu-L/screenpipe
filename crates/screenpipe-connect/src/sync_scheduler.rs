@@ -21,6 +21,7 @@ pub struct SyncScheduler {
 }
 
 impl SyncScheduler {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             running: Arc::new(AtomicBool::new(false)),

@@ -1,3 +1,4 @@
+#![allow(unused_must_use)]
 //! Benchmarks for frame comparison optimizations.
 //!
 //! Run with: cargo bench -p screenpipe-screen --bench frame_comparison_bench

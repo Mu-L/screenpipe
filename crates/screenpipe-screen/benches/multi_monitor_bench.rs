@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Multi-monitor performance benchmarks for vision pipeline optimization.
 //!
 //! Run with: cargo bench -p screenpipe-screen --bench multi_monitor_bench

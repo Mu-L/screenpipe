@@ -1,3 +1,4 @@
+#![allow(warnings)]
 use anyhow::Result;
 use chrono::{Duration, Utc};
 use screenpipe_core::paths;

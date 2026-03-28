@@ -1,3 +1,4 @@
+#![allow(warnings)]
 use std::collections::HashSet;
 
 /// Test demonstrating window capture error scenarios

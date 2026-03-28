@@ -16,6 +16,7 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 
 fn get_hostname() -> String {
+    #[allow(clippy::if_same_then_else)]
     let cmd = if cfg!(windows) {
         "hostname"
     } else {

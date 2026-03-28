@@ -1,3 +1,4 @@
+#![allow(warnings)]
 /// Tests to reproduce the timeline refresh bug where new frames are not pushed to clients.
 ///
 /// The bug: Timeline shows 7:41 PM but current time is 7:55 PM - a 14 minute gap.

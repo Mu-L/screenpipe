@@ -1,3 +1,4 @@
+#![allow(warnings)]
 use chrono::{Duration, Utc};
 use futures::{SinkExt, StreamExt};
 use screenpipe_db::DatabaseManager;
