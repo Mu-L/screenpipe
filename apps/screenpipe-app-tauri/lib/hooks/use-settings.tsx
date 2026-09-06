@@ -47,6 +47,7 @@ import {
 } from "@/lib/live-views/onboarding-activation";
 import {
 	cloneLocalDesktopRemotePolicy,
+	LOCAL_DESKTOP_REMOTE_POLICY,
 	NEW_INSTALL_REMOTE_CONTROL_PREFERENCES,
 	normalizeDesktopRemotePolicySnapshot,
 	normalizeDesktopRemotePreferences,
